@@ -1,0 +1,289 @@
+:root {
+  font-family: "Orbitron", "Segoe UI", sans-serif;
+  color: #f4f9ff;
+  background: radial-gradient(circle at top, #0a1931, #010409 60%, #000);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body,
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#game-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+#game-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  padding: 20px;
+  display: grid;
+  grid-template-areas:
+    "title weapon"
+    "status build"
+    "inventory build";
+  grid-template-columns: 1fr 280px;
+  grid-template-rows: auto auto 1fr;
+  gap: 20px;
+}
+
+#title {
+  grid-area: title;
+  font-size: clamp(32px, 3vw, 48px);
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(0, 221, 255, 0.6);
+}
+
+#status-bars {
+  grid-area: status;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 320px;
+}
+
+.bar label {
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+  letter-spacing: 2px;
+}
+
+.bar-track {
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+#health-fill {
+  width: 100%;
+  background: linear-gradient(90deg, #ff306e, #ff8a9e);
+}
+
+#shield-fill {
+  width: 80%;
+  background: linear-gradient(90deg, #0ad4ff, #66f6ff);
+}
+
+#inventory {
+  grid-area: inventory;
+  background: rgba(2, 12, 24, 0.72);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 255, 242, 0.35);
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 260px;
+  pointer-events: auto;
+}
+
+#inventory h2,
+#weapon-hud h2,
+#build-menu h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  letter-spacing: 1px;
+}
+
+#inventory-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 10px;
+}
+
+#inventory-list li {
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(24, 67, 82, 0.6);
+  border: 1px solid rgba(0, 255, 242, 0.2);
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+#weapon-hud {
+  grid-area: weapon;
+  background: rgba(10, 22, 40, 0.74);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 16px;
+  pointer-events: auto;
+}
+
+#weapon-slots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.weapon-slot {
+  border-radius: 10px;
+  border: 1px solid rgba(0, 255, 198, 0.4);
+  padding: 10px;
+  text-align: center;
+  font-size: 0.9rem;
+  background: rgba(3, 20, 35, 0.8);
+}
+
+.weapon-slot.active {
+  outline: 2px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 18px rgba(0, 255, 198, 0.3);
+}
+
+#build-menu {
+  grid-area: build;
+  background: rgba(8, 18, 36, 0.84);
+  border-radius: 12px;
+  border: 1px solid rgba(0, 161, 255, 0.42);
+  padding: 16px;
+  pointer-events: auto;
+}
+
+.build-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(100px, 1fr));
+  gap: 12px;
+}
+
+.build-grid button {
+  pointer-events: auto;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #053570, #0d79ff);
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.build-grid button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(13, 121, 255, 0.25);
+}
+
+#controls-help {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  letter-spacing: 0.5px;
+  max-width: 320px;
+}
+
+#mobile-controls {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  pointer-events: auto;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#joystick {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  position: relative;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#joystick-thumb {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #0ff, #037);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transition: transform 0.05s linear;
+}
+
+#mobile-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#mobile-buttons button {
+  pointer-events: auto;
+  padding: 12px 18px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #ff6f61, #ff2d95);
+  color: #fff;
+  font-weight: bold;
+  letter-spacing: 1px;
+  box-shadow: 0 8px 18px rgba(255, 45, 149, 0.28);
+  cursor: pointer;
+}
+
+@media (max-width: 1080px) {
+  #overlay {
+    grid-template-areas:
+      "title"
+      "weapon"
+      "status"
+      "build"
+      "inventory";
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(5, auto);
+  }
+
+  #controls-help {
+    position: static;
+    margin-top: 10px;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(0, 221, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(0, 221, 255, 0.8);
+  }
+}
+
+.weapon-slot.active {
+  animation: pulse 1.6s infinite;
+}
