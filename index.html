@@ -10,15 +10,142 @@
     <div id="game-container">
       <canvas id="game-canvas"></canvas>
       <div id="start-screen" class="visible">
-        <div class="start-content">
-          <h1>Dropzone X</h1>
-          <p class="tagline">Preparati al drop. Premi Gioca per entrare nella zona.</p>
-          <button id="start-button" type="button">Caricamento...</button>
-          <p id="loading-status">Caricamento risorse 3D... 0%</p>
+        <header class="home-top-bar">
+          <div class="logo-stack" aria-label="Dropzone X">
+            <span class="logo-mark">Dropzone</span>
+            <span class="logo-highlight">X</span>
+          </div>
+          <div class="home-currencies" aria-label="Valute disponibili">
+            <div class="currency-chip">
+              <span class="label">Crediti</span>
+              <span class="value" id="currency-credits">1&nbsp;250</span>
+            </div>
+            <div class="currency-chip">
+              <span class="label">Flux</span>
+              <span class="value" id="currency-flux">460</span>
+            </div>
+            <div class="currency-chip premium">
+              <span class="label">Token Pass</span>
+              <span class="value" id="currency-tokens">12</span>
+            </div>
+          </div>
+        </header>
+        <div class="home-body">
+          <nav class="home-nav" aria-label="Navigazione principale">
+            <button class="active" data-section="play">Gioca</button>
+            <button data-section="battlepass">Battle Pass</button>
+            <button data-section="locker">Armadietto</button>
+            <button data-section="shop">Negozio</button>
+            <button data-section="profile">Profilo</button>
+          </nav>
+          <section class="home-panels" aria-live="polite">
+            <article class="home-panel active" data-section="play">
+              <h2>Benvenuto nella Stagione 7</h2>
+              <p>
+                Il drop odierno si svolge nel distretto orbitale <strong>Nova Prime</strong>.
+                Raduna la tua squadra e preparati a contrastare la corporazione Atlas.
+              </p>
+              <ul class="feature-list">
+                <li>Nuova modalità <em>Conquista Satelliti</em></li>
+                <li>Evento a tempo <em>Tempesta Quantica</em> attivo per 5 giorni</li>
+                <li>Missioni giornaliere pronte per essere riscattate</li>
+              </ul>
+            </article>
+            <article class="home-panel" data-section="battlepass">
+              <h2>Battle Pass – Stagione 7</h2>
+              <p>
+                Sblocca skin esclusive, coreografie e effetti scia progredendo attraverso 100 livelli.
+                Completa missioni settimanali per boostare l'avanzamento.
+              </p>
+              <div class="pass-rewards">
+                <div class="reward-card">
+                  <h3>Livello 45</h3>
+                  <p>Skin leggendaria <strong>Vanguard Eclipse</strong></p>
+                </div>
+                <div class="reward-card">
+                  <h3>Livello 72</h3>
+                  <p>Strascico <strong>Ion Trails</strong></p>
+                </div>
+                <div class="reward-card">
+                  <h3>Livello 90</h3>
+                  <p>Mossa finale <strong>Quantum Drop</strong></p>
+                </div>
+              </div>
+            </article>
+            <article class="home-panel" data-section="locker">
+              <h2>Armadietto</h2>
+              <p>Gestisci i tuoi equipaggiamenti, personalizza eroi, scie e stendardi.</p>
+              <ul class="loadout-grid">
+                <li>
+                  <h3>Set Attivo</h3>
+                  <p>Soldato sintetico con skin <strong>Neon Phantom</strong>.</p>
+                </li>
+                <li>
+                  <h3>Skin Alternative</h3>
+                  <p>Scambia rapidamente tra 12 stili sbloccati.</p>
+                </li>
+                <li>
+                  <h3>Effetti drop</h3>
+                  <p>Seleziona scie rare per impressionare la lobby.</p>
+                </li>
+              </ul>
+            </article>
+            <article class="home-panel" data-section="shop">
+              <h2>Negozio</h2>
+              <p>Offerte aggiornate ogni 24 ore con bundle esclusivi.</p>
+              <div class="shop-grid">
+                <div class="shop-item">
+                  <h3>Bundle "Resistenza"</h3>
+                  <p>Skin epica + piccone + 1.000 Crediti.</p>
+                </div>
+                <div class="shop-item">
+                  <h3>Pacchetto Emote</h3>
+                  <p>5 emote reattive in sconto del 30%.</p>
+                </div>
+                <div class="shop-item">
+                  <h3>Rotazione giornaliera</h3>
+                  <p>Visita ogni giorno per i contenuti in primo piano.</p>
+                </div>
+              </div>
+            </article>
+            <article class="home-panel" data-section="profile">
+              <h2>Profilo Pilota</h2>
+              <p>Visualizza statistiche, livello account e progressione competitiva.</p>
+              <ul class="profile-stats">
+                <li><span class="stat-label">Livello</span><span class="stat-value" id="profile-level">58</span></li>
+                <li><span class="stat-label">Partite vinte</span><span class="stat-value" id="profile-wins">214</span></li>
+                <li><span class="stat-label">Eliminazioni totali</span><span class="stat-value" id="profile-elims">3&nbsp;482</span></li>
+              </ul>
+            </article>
+          </section>
         </div>
+        <footer class="home-footer">
+          <div class="pass-summary">
+            <div class="pass-header">
+              <span class="pass-label">Battle Pass</span>
+              <span class="pass-level">Livello <strong id="pass-level">27</strong></span>
+            </div>
+            <div class="pass-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="54">
+              <div class="pass-progress-fill" id="pass-progress-fill" style="width: 54%"></div>
+            </div>
+            <p class="pass-note">Completa missioni giornaliere per ottenere XP extra.</p>
+          </div>
+          <button id="start-button" type="button">Caricamento...</button>
+        </footer>
+        <p id="loading-status" class="loading-status">Caricamento risorse 3D... 0%</p>
       </div>
       <div id="overlay">
-        <div id="title">Dropzone X</div>
+        <div id="match-top-bar">
+          <div class="match-brand">Dropzone X</div>
+          <div class="match-meta">
+            <span id="match-mode">Modalità: Assalto Orbitale</span>
+            <span id="match-timer">00:00</span>
+          </div>
+          <div class="match-purse">
+            <span class="purse-item">Crediti <strong id="match-credits">1&nbsp;250</strong></span>
+            <span class="purse-item">Token <strong id="match-tokens">12</strong></span>
+          </div>
+        </div>
         <div id="status-bars">
           <div class="bar">
             <label>Salute</label>
@@ -37,14 +164,6 @@
           <h2>Armi</h2>
           <div id="weapon-slots"></div>
         </div>
-        <div id="build-menu">
-          <h2>Costruzioni Rapide</h2>
-          <div class="build-grid">
-            <button data-structure="wall">Muro</button>
-            <button data-structure="ramp">Rampa</button>
-            <button data-structure="turret">Torretta</button>
-          </div>
-        </div>
         <div id="controls-help"></div>
         <div id="mobile-controls" class="hidden">
           <div id="joystick">
@@ -53,7 +172,6 @@
           <div id="mobile-buttons">
             <button id="jump-btn">Salta</button>
             <button id="fire-btn">Fuoco</button>
-            <button id="build-btn">Costruisci</button>
           </div>
           <div id="mobile-camera-controls" class="hidden">
             <button id="zoom-in-btn" aria-label="Avvicina visuale">+</button>

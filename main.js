@@ -5,6 +5,86 @@ const canvas = document.getElementById('game-canvas');
 const startScreen = document.getElementById('start-screen');
 const startButton = document.getElementById('start-button');
 const loadingStatus = document.getElementById('loading-status');
+const homeNavButtons = Array.from(document.querySelectorAll('.home-nav button'));
+const homePanels = new Map(
+  Array.from(document.querySelectorAll('.home-panel')).map((panel) => [panel.dataset.section, panel])
+);
+const currencyDisplays = {
+  credits: document.getElementById('currency-credits'),
+  flux: document.getElementById('currency-flux'),
+  tokens: document.getElementById('currency-tokens'),
+  matchCredits: document.getElementById('match-credits'),
+  matchTokens: document.getElementById('match-tokens'),
+};
+const passLevelDisplay = document.getElementById('pass-level');
+const passProgressFill = document.getElementById('pass-progress-fill');
+const matchModeDisplay = document.getElementById('match-mode');
+const matchTimerDisplay = document.getElementById('match-timer');
+
+const metaProgress = {
+  credits: 1250,
+  flux: 460,
+  tokens: 12,
+  passLevel: 27,
+  passProgress: 0.54,
+  mode: 'Assalto Orbitale',
+};
+
+let activeHomeSection = 'play';
+
+function formatMeta(value) {
+  return value.toLocaleString('it-IT');
+}
+
+function updateMetaUI() {
+  if (currencyDisplays.credits) {
+    currencyDisplays.credits.textContent = formatMeta(metaProgress.credits);
+  }
+  if (currencyDisplays.flux) {
+    currencyDisplays.flux.textContent = formatMeta(metaProgress.flux);
+  }
+  if (currencyDisplays.tokens) {
+    currencyDisplays.tokens.textContent = formatMeta(metaProgress.tokens);
+  }
+  if (currencyDisplays.matchCredits) {
+    currencyDisplays.matchCredits.textContent = formatMeta(metaProgress.credits);
+  }
+  if (currencyDisplays.matchTokens) {
+    currencyDisplays.matchTokens.textContent = formatMeta(metaProgress.tokens);
+  }
+  if (passLevelDisplay) {
+    passLevelDisplay.textContent = metaProgress.passLevel.toString();
+  }
+  if (passProgressFill && passProgressFill.parentElement) {
+    const percent = Math.round(metaProgress.passProgress * 100);
+    passProgressFill.style.width = `${percent}%`;
+    passProgressFill.parentElement.setAttribute('aria-valuenow', percent.toString());
+  }
+  if (matchModeDisplay) {
+    matchModeDisplay.textContent = `Modalità: ${metaProgress.mode}`;
+  }
+}
+
+function setHomeSection(section) {
+  if (!homePanels.has(section)) {
+    return;
+  }
+  activeHomeSection = section;
+  homeNavButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.section === section);
+  });
+  homePanels.forEach((panel, key) => {
+    panel.classList.toggle('active', key === section);
+  });
+}
+
+homeNavButtons.forEach((button) => {
+  button.addEventListener('click', () => setHomeSection(button.dataset.section));
+});
+
+setHomeSection(activeHomeSection);
+updateMetaUI();
+updateMatchTimer();
 
 startButton.disabled = true;
 startButton.textContent = 'Caricamento...';
@@ -41,7 +121,19 @@ const clock = new THREE.Clock();
 
 let assetsReady = false;
 let gameStarted = false;
-let autoStartHandle = null;
+let matchElapsed = 0;
+
+function updateMatchTimer() {
+  if (!matchTimerDisplay) {
+    return;
+  }
+  const totalSeconds = Math.floor(matchElapsed);
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, '0');
+  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+  matchTimerDisplay.textContent = `${minutes}:${seconds}`;
+}
 
 const loadingManager = new THREE.LoadingManager(
   () => {
@@ -52,11 +144,6 @@ const loadingManager = new THREE.LoadingManager(
     if (document.hasFocus()) {
       startButton.focus({ preventScroll: true });
     }
-    autoStartHandle = window.setTimeout(() => {
-      if (!gameStarted) {
-        startGame();
-      }
-    }, 1200);
   },
   (url, itemsLoaded, itemsTotal) => {
     const percent = itemsTotal ? Math.round((itemsLoaded / itemsTotal) * 100) : 0;
@@ -65,6 +152,7 @@ const loadingManager = new THREE.LoadingManager(
   (url) => {
     loadingStatus.textContent = `Errore nel caricamento di ${url}`;
     startButton.disabled = false;
+    startButton.textContent = 'Gioca ora';
   }
 );
 
@@ -73,11 +161,12 @@ function startGame() {
     return;
   }
   gameStarted = true;
-  if (autoStartHandle !== null) {
-    window.clearTimeout(autoStartHandle);
-    autoStartHandle = null;
-  }
   startButton.disabled = true;
+  matchElapsed = 0;
+  updateMatchTimer();
+  if (matchModeDisplay) {
+    matchModeDisplay.textContent = 'Modalità: Assalto Orbitale — Match attivo';
+  }
   startScreen.classList.remove('visible');
   Object.keys(movement).forEach((key) => {
     movement[key] = false;
@@ -427,11 +516,6 @@ gltfLoader.load(
     startButton.disabled = false;
     startButton.textContent = 'Gioca ora';
     loadingStatus.textContent = 'Asset 3D non disponibile. Premi Gioca per continuare.';
-    autoStartHandle = window.setTimeout(() => {
-      if (!gameStarted) {
-        startGame();
-      }
-    }, 1200);
   }
 );
 
@@ -477,7 +561,7 @@ const inventoryItems = [
   { id: 'ion_grenade', label: 'Granata Ionica', type: 'explosive' },
   { id: 'nano_kit', label: 'Kit Nanoritardante', type: 'heal' },
   { id: 'shield_core', label: 'Nucleo Scudo', type: 'utility' },
-  { id: 'build_module', label: 'Modulo Costruzione', type: 'build' },
+  { id: 'pulse_beacon', label: 'Radiofaro Pulse', type: 'utility' },
   { id: 'drone', label: 'Drone Scout', type: 'utility' },
 ];
 
@@ -561,7 +645,7 @@ if (device.isMobile) {
   controlsHelp.innerHTML = `
     <strong>Touch Controls</strong><br/>
     • Muovi il joystick virtuale per camminare.<br/>
-    • Usa i pulsanti per saltare, sparare e costruire.<br/>
+    • Usa i pulsanti per saltare e sparare.<br/>
     • Trascina il lato destro per ruotare la camera.<br/>
     • Pulsanti +/- per regolare lo zoom.
   `;
@@ -628,7 +712,7 @@ if (device.isMobile) {
     • WASD o frecce per muoversi.<br/>
     • Spazio per saltare, tasto sinistro per sparare.<br/>
     • Tasto destro + trascinamento per ruotare la camera, rotellina per lo zoom.<br/>
-    • Tasti 1-3 per cambiare arma, F per costruire struttura selezionata.
+    • Tasti 1-3 per cambiare arma attiva.
   `;
 }
 
@@ -720,9 +804,6 @@ if (!device.isMobile) {
         updateWeaponAppearance();
       }
     }
-    if (event.code === 'KeyF') {
-      buildStructure('wall');
-    }
   });
   document.addEventListener('keyup', (event) => {
     if (!gameStarted) {
@@ -763,66 +844,8 @@ if (!device.isMobile) {
     }
   });
 }
-
-function buildStructure(type) {
-  if (!gameStarted) {
-    return;
-  }
-  const geometryMap = {
-    wall: new THREE.BoxGeometry(3, 3, 0.3),
-    ramp: new THREE.BoxGeometry(3, 0.3, 3),
-    turret: new THREE.CylinderGeometry(0.7, 1.2, 2.4, 12),
-  };
-
-  const material = new THREE.MeshStandardMaterial({
-    color: 0x0ff6ff,
-    emissive: 0x0ff6ff,
-    emissiveIntensity: 0.3,
-    transparent: true,
-    opacity: 0.7,
-    metalness: 0.4,
-    roughness: 0.3,
-  });
-
-  const geometry = geometryMap[type] || geometryMap.wall;
-  const structure = new THREE.Mesh(geometry, material);
-
-  const placement = cursor.visible
-    ? scratchVector.copy(cursor.position)
-    : scratchVector
-        .copy(cameraVectors.forward)
-        .multiplyScalar(4)
-        .add(hero.position);
-
-  const baseHeights = {
-    wall: 1.5,
-    ramp: 0.2,
-    turret: 1.2,
-  };
-
-  structure.position.copy(placement);
-  structure.position.y = placement.y + (baseHeights[type] ?? 1.2);
-
-  structure.rotation.y = Math.atan2(cameraVectors.forward.x, cameraVectors.forward.z);
-  if (type === 'ramp') {
-    structure.rotation.x = -Math.PI / 6;
-  }
-  world.add(structure);
-
-  setTimeout(() => {
-    material.opacity = 1;
-    material.emissiveIntensity = 0.05;
-  }, 1000);
-}
-
-const buildButtons = document.querySelectorAll('#build-menu button');
-buildButtons.forEach((btn) => {
-  btn.addEventListener('click', () => buildStructure(btn.dataset.structure));
-});
-
 const jumpButton = document.getElementById('jump-btn');
 const fireButton = document.getElementById('fire-btn');
-const buildButton = document.getElementById('build-btn');
 
 if (device.isMobile) {
   jumpButton.addEventListener('touchstart', (event) => {
@@ -844,11 +867,6 @@ if (device.isMobile) {
     event.preventDefault();
     if (!gameStarted) return;
     isShooting = false;
-  });
-  buildButton.addEventListener('touchstart', (event) => {
-    event.preventDefault();
-    if (!gameStarted) return;
-    buildStructure('ramp');
   });
 }
 
@@ -1040,6 +1058,10 @@ function animate() {
   updateHeroAnimation(delta, moving);
   updateShooting(delta);
   updateCamera(delta);
+  if (gameStarted) {
+    matchElapsed += delta;
+    updateMatchTimer();
+  }
   updateCursor();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
