@@ -26,6 +26,14 @@ const passLevel = document.getElementById("pass-level");
 const passProgress = document.getElementById("pass-progress");
 const passProgressLabel = document.getElementById("pass-progress-label");
 const passTrack = document.getElementById("pass-track");
+const passPreviewName = document.getElementById("pass-preview-name");
+const passPreviewDescription = document.getElementById("pass-preview-description");
+const passPreviewRarity = document.getElementById("pass-preview-rarity");
+const passPreviewStatus = document.getElementById("pass-preview-status");
+const passPreviewImage = document.getElementById("pass-preview-image");
+const passPreviewReward = document.getElementById("pass-preview-reward");
+const passPreviewPremium = document.getElementById("pass-preview-premium");
+const passClaimButton = document.getElementById("pass-claim-button");
 const lockerOutfit = document.getElementById("locker-outfit");
 const lockerBackbling = document.getElementById("locker-backbling");
 const lockerPickaxe = document.getElementById("locker-pickaxe");
@@ -47,6 +55,14 @@ const weaponImportForm = document.getElementById("weapon-import-form");
 const animationSelect = document.getElementById("outfit-animation-set");
 const shopFeatured = document.getElementById("shop-featured");
 const shopDaily = document.getElementById("shop-daily");
+const shopPreviewImage = document.getElementById("shop-preview-image");
+const shopPreviewName = document.getElementById("shop-preview-name");
+const shopPreviewDescription = document.getElementById("shop-preview-description");
+const shopPreviewRarity = document.getElementById("shop-preview-rarity");
+const shopPreviewPrice = document.getElementById("shop-preview-price");
+const shopPreviewType = document.getElementById("shop-preview-type");
+const shopPreviewOwned = document.getElementById("shop-preview-owned");
+const shopBuyButton = document.getElementById("shop-buy-button");
 const profileMatches = document.getElementById("profile-matches");
 const profileWins = document.getElementById("profile-wins");
 const profileWinrate = document.getElementById("profile-winrate");
@@ -61,7 +77,51 @@ const state = {
   pollHandle: null,
   latestSession: null,
   cosmetics: null,
+  battlePass: null,
+  shop: null,
+  selectedTierId: null,
+  selectedShopItemId: null,
 };
+
+function formatBattlePassReward(tier) {
+  if (!tier) return "-";
+  const reward = tier.reward || {};
+  if (reward.type === "currency" && reward.amount) {
+    return `${reward.amount} ${String(reward.currency || "").toUpperCase()}`;
+  }
+  if (reward.type === "outfit" || reward.cosmeticKind === "outfit") {
+    return "Skin operatore";
+  }
+  if (reward.type === "weapon" || reward.cosmeticKind === "weapon") {
+    return "Skin arma";
+  }
+  if (reward.type === "emote") {
+    return "Emote";
+  }
+  if (reward.type === "profile") {
+    return "Oggetto profilo";
+  }
+  return reward.type ? reward.type.charAt(0).toUpperCase() + reward.type.slice(1) : "Ricompensa";
+}
+
+function formatShopReward(item) {
+  if (!item) return "Ricompensa";
+  const kind = item.rewardType || item.cosmeticKind || "cosmetico";
+  switch (kind) {
+    case "outfit":
+      return "Skin operatore";
+    case "weapon":
+      return "Skin arma";
+    case "emote":
+      return "Emote";
+    case "bundle":
+      return "Bundle";
+    case "currency":
+      return "Valuta";
+    default:
+      return kind.charAt(0).toUpperCase() + kind.slice(1);
+  }
+}
 
 function setQueueSearching() {
   queueStatus.textContent = "Ricerca giocatori in corso...";
@@ -77,6 +137,8 @@ function initialise() {
   bindNavigation();
   bindMatchmaking();
   bindCosmetics();
+  bindBattlePass();
+  bindShop();
   const url = new URL(window.location.href);
   const requestedView = url.searchParams.get("view") || document.body.dataset.activeView;
   toggleView(requestedView);
@@ -142,6 +204,8 @@ function bindMatchmaking() {
 function hydrateLobby(lobby) {
   if (!lobby) return;
   state.cosmetics = lobby.cosmetics || null;
+  state.battlePass = lobby.battlePass || null;
+  state.shop = lobby.shop || null;
   heroName.textContent = lobby.hero.displayName;
   if (heroTitle) {
     heroTitle.textContent = lobby.hero.title;
@@ -184,13 +248,12 @@ function hydrateLobby(lobby) {
   if (passProgressLabel) {
     passProgressLabel.textContent = `${Math.round((lobby.battlePass.progress || 0) * 100)}% completato`;
   }
-  renderPassTrack(lobby.battlePass.rewards || []);
+  renderPassTrack(state.battlePass, state.selectedTierId);
   renderLocker(lobby.locker || {}, lobby.cosmetics || {}, lobby.hero || {});
   renderOutfitList(lobby.cosmetics?.outfits || [], lobby.hero?.outfit?.id);
   renderWeaponSkinList(lobby.cosmetics?.weaponSkins || [], lobby.hero?.weaponSkin?.id);
   populateAnimationSelect(lobby.cosmetics?.animationSets || [], lobby.hero?.outfit?.animationSetId);
-  renderShopList(shopFeatured, lobby.shop?.featured || []);
-  renderShopList(shopDaily, lobby.shop?.daily || []);
+  renderShop(state.shop, state.selectedShopItemId);
   renderProfile(lobby.profile || {});
 }
 
@@ -377,20 +440,181 @@ function resetQueue() {
   renderSquadPlaceholder();
 }
 
-function renderPassTrack(rewards) {
+function renderPassTrack(battlePass, preferredTierId) {
   if (!passTrack) return;
   passTrack.innerHTML = "";
-  rewards.forEach((reward) => {
+  const tiers = battlePass?.tiers || [];
+  tiers.forEach((tier) => {
     const item = document.createElement("li");
-    const tier = document.createElement("span");
-    tier.className = "label";
-    tier.textContent = `Tier ${reward.tier}`;
-    const rewardName = document.createElement("strong");
-    rewardName.textContent = reward.reward;
-    item.appendChild(tier);
-    item.appendChild(rewardName);
+    const classes = ["pass-card"];
+    if (tier.claimed) classes.push("claimed");
+    else if (!tier.unlocked) classes.push("locked");
+    if (tier.premium) classes.push("premium");
+    if (tier.owned) classes.push("owned");
+    item.className = classes.join(" ");
+    item.dataset.tierId = tier.id;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    const tierLabel = document.createElement("span");
+    tierLabel.className = "tier-label";
+    tierLabel.textContent = `Tier ${tier.tier}`;
+
+    const figure = document.createElement("figure");
+    figure.className = "card-thumb";
+    const img = document.createElement("img");
+    img.src = tier.thumbnailUrl;
+    img.alt = tier.name;
+    figure.appendChild(img);
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+    const title = document.createElement("strong");
+    title.textContent = tier.name;
+    const rarity = document.createElement("span");
+    rarity.className = "rarity";
+    rarity.textContent = tier.rarity;
+    const rewardLabel = document.createElement("span");
+    rewardLabel.className = "reward";
+    rewardLabel.textContent = formatBattlePassReward(tier);
+    body.appendChild(title);
+    body.appendChild(rarity);
+    body.appendChild(rewardLabel);
+    if (tier.premium) {
+      const badge = document.createElement("span");
+      badge.className = "badge premium";
+      badge.textContent = "Premium";
+      body.appendChild(badge);
+    }
+    if (tier.claimed || tier.owned) {
+      const status = document.createElement("span");
+      status.className = "status";
+      status.textContent = tier.claimed ? "Riscattato" : "Nel locker";
+      body.appendChild(status);
+    }
+
+    button.appendChild(tierLabel);
+    button.appendChild(figure);
+    button.appendChild(body);
+    item.appendChild(button);
     passTrack.appendChild(item);
   });
+
+  if (tiers.length === 0) {
+    state.selectedTierId = null;
+    updatePassPreview(null);
+    return;
+  }
+
+  let targetId = preferredTierId && tiers.some((tier) => tier.id === preferredTierId) ? preferredTierId : null;
+  if (!targetId) {
+    const claimable = tiers.find((tier) => !tier.claimed && tier.unlocked);
+    targetId = (claimable && claimable.id) || tiers[0].id;
+  }
+  selectPassTier(targetId);
+}
+
+function selectPassTier(tierId) {
+  if (!state.battlePass) return;
+  const tiers = state.battlePass.tiers || [];
+  const tier = tiers.find((entry) => entry.id === tierId) || null;
+  state.selectedTierId = tier ? tierId : null;
+  Array.from(passTrack?.children || []).forEach((node) => {
+    node.classList.toggle("selected", tier && node.dataset.tierId === tier.id);
+  });
+  updatePassPreview(tier);
+}
+
+function updatePassPreview(tier) {
+  if (!passClaimButton) return;
+  if (!tier) {
+    passClaimButton.disabled = true;
+    passClaimButton.dataset.tierId = "";
+    passClaimButton.dataset.unlock = "false";
+    passClaimButton.textContent = "Seleziona un tier";
+    if (passPreviewName) passPreviewName.textContent = "Seleziona una ricompensa";
+    if (passPreviewDescription)
+      passPreviewDescription.textContent = "Scegli un tier del Battle Pass per visualizzare dettagli e requisiti.";
+    if (passPreviewRarity) passPreviewRarity.textContent = "-";
+    if (passPreviewStatus) passPreviewStatus.textContent = "-";
+    if (passPreviewReward) passPreviewReward.textContent = "-";
+    if (passPreviewPremium) passPreviewPremium.textContent = "-";
+    if (passPreviewImage && passPreviewImage.tagName === "IMG") {
+      passPreviewImage.src = "";
+      passPreviewImage.alt = "Anteprima ricompensa";
+    }
+    return;
+  }
+
+  if (passPreviewName) passPreviewName.textContent = tier.name;
+  if (passPreviewDescription) passPreviewDescription.textContent = tier.description || "";
+  if (passPreviewRarity) passPreviewRarity.textContent = tier.rarity || "";
+  if (passPreviewStatus) {
+    let status = "Bloccato";
+    if (tier.claimed) status = "Riscattato";
+    else if (tier.owned) status = "Nel locker";
+    else if (tier.unlocked) status = "Disponibile";
+    passPreviewStatus.textContent = status;
+  }
+  if (passPreviewReward) passPreviewReward.textContent = formatBattlePassReward(tier);
+  if (passPreviewPremium) passPreviewPremium.textContent = tier.premium ? "Premium" : "Base";
+  if (passPreviewImage && passPreviewImage.tagName === "IMG") {
+    passPreviewImage.src = tier.thumbnailUrl;
+    passPreviewImage.alt = tier.name;
+  }
+
+  const requiresUnlock = !tier.unlocked && tier.unlockCost && tier.unlockCurrency;
+  passClaimButton.dataset.tierId = tier.id;
+  passClaimButton.dataset.unlock = requiresUnlock ? "true" : "false";
+  passClaimButton.disabled = tier.claimed || (!tier.unlocked && !requiresUnlock);
+  if (tier.claimed) {
+    passClaimButton.textContent = "Già riscattato";
+  } else if (tier.unlocked) {
+    passClaimButton.textContent = "Riscatta ricompensa";
+  } else if (requiresUnlock) {
+    passClaimButton.textContent = `Sblocca per ${tier.unlockCost} ${String(tier.unlockCurrency).toUpperCase()}`;
+  } else {
+    passClaimButton.textContent = "Bloccato";
+  }
+}
+
+function bindBattlePass() {
+  if (passTrack) {
+    passTrack.addEventListener("click", (event) => {
+      const target = event.target.closest("li[data-tier-id]");
+      if (!target) return;
+      selectPassTier(target.dataset.tierId);
+    });
+  }
+  if (passClaimButton) {
+    passClaimButton.addEventListener("click", async () => {
+      if (passClaimButton.disabled) return;
+      const tierId = passClaimButton.dataset.tierId;
+      if (!tierId) return;
+      const unlock = passClaimButton.dataset.unlock === "true";
+      await claimBattlePassTier(tierId, unlock);
+    });
+  }
+}
+
+async function claimBattlePassTier(tierId, unlock) {
+  try {
+    const response = await fetch("/api/battle-pass/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tierId, unlock }),
+    });
+    if (!response.ok) {
+      throw new Error(`Claim failed ${response.status}`);
+    }
+    await response.json();
+    await refreshLobby();
+    if (state.battlePass?.tiers?.some((tier) => tier.id === tierId)) {
+      selectPassTier(tierId);
+    }
+  } catch (error) {
+    console.error("Impossibile aggiornare il Battle Pass", error);
+  }
 }
 
 function renderLocker(locker, cosmetics, hero) {
@@ -437,7 +661,8 @@ function renderOutfitList(outfits, equippedId) {
   outfitList.innerHTML = "";
   outfits.forEach((outfit) => {
     const item = document.createElement("li");
-    item.className = `cosmetic-item${equippedId && equippedId === outfit.id ? " equipped" : ""}`;
+    const owned = Boolean(outfit.owned);
+    item.className = `cosmetic-item${equippedId && equippedId === outfit.id ? " equipped" : ""}${owned ? "" : " locked"}`;
     item.dataset.outfitId = outfit.id;
 
     const preview = document.createElement("img");
@@ -455,9 +680,15 @@ function renderOutfitList(outfits, equippedId) {
 
     const button = document.createElement("button");
     button.type = "button";
+    button.type = "button";
     button.className = "equip-btn";
     button.dataset.equipOutfit = outfit.id;
-    button.textContent = equippedId && equippedId === outfit.id ? "Equipaggiata" : "Equipaggia";
+    if (!owned) {
+      button.textContent = "Non posseduta";
+      button.disabled = true;
+    } else {
+      button.textContent = equippedId && equippedId === outfit.id ? "Equipaggiata" : "Equipaggia";
+    }
 
     item.appendChild(preview);
     item.appendChild(details);
@@ -471,7 +702,8 @@ function renderWeaponSkinList(weaponSkins, equippedId) {
   weaponSkinList.innerHTML = "";
   weaponSkins.forEach((skin) => {
     const item = document.createElement("li");
-    item.className = `cosmetic-item${equippedId && equippedId === skin.id ? " equipped" : ""}`;
+    const owned = Boolean(skin.owned);
+    item.className = `cosmetic-item${equippedId && equippedId === skin.id ? " equipped" : ""}${owned ? "" : " locked"}`;
     item.dataset.weaponId = skin.id;
 
     const preview = document.createElement("img");
@@ -491,7 +723,12 @@ function renderWeaponSkinList(weaponSkins, equippedId) {
     button.type = "button";
     button.className = "equip-btn";
     button.dataset.equipWeapon = skin.id;
-    button.textContent = equippedId && equippedId === skin.id ? "Equipaggiata" : "Equipaggia";
+    if (!owned) {
+      button.textContent = "Non posseduta";
+      button.disabled = true;
+    } else {
+      button.textContent = equippedId && equippedId === skin.id ? "Equipaggiata" : "Equipaggia";
+    }
 
     item.appendChild(preview);
     item.appendChild(details);
@@ -585,26 +822,155 @@ async function equipCosmetics(payload) {
   }
 }
 
-function renderShopList(container, items) {
+function renderShop(storefront, preferredItemId) {
+  renderShopSection(shopFeatured, storefront?.featured || []);
+  renderShopSection(shopDaily, storefront?.daily || []);
+  const allItems = [...(storefront?.featured || []), ...(storefront?.daily || [])];
+  if (allItems.length === 0) {
+    state.selectedShopItemId = null;
+    updateShopPreview(null);
+    return;
+  }
+  let targetId = preferredItemId && allItems.some((item) => item.id === preferredItemId) ? preferredItemId : null;
+  if (!targetId) {
+    const available = allItems.find((item) => !item.owned) || allItems[0];
+    targetId = available.id;
+  }
+  selectShopItem(targetId);
+}
+
+function renderShopSection(container, items) {
   if (!container) return;
   container.innerHTML = "";
   items.forEach((item) => {
-    const row = document.createElement("li");
-    const info = document.createElement("div");
-    const name = document.createElement("strong");
-    name.textContent = item.name;
+    const card = document.createElement("li");
+    card.className = `shop-card${item.owned ? " owned" : ""}`;
+    card.dataset.itemId = item.id;
+
+    const button = document.createElement("button");
+    const figure = document.createElement("figure");
+    figure.className = "card-thumb";
+    const img = document.createElement("img");
+    img.src = item.thumbnailUrl;
+    img.alt = item.name;
+    figure.appendChild(img);
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+    const title = document.createElement("strong");
+    title.textContent = item.name;
     const rarity = document.createElement("span");
     rarity.className = "rarity";
     rarity.textContent = item.rarity;
-    info.appendChild(name);
-    info.appendChild(rarity);
     const price = document.createElement("span");
     price.className = "price";
-    price.textContent = `${item.price} ⛁`;
-    row.appendChild(info);
-    row.appendChild(price);
-    container.appendChild(row);
+    price.textContent = `${item.price} ${String(item.currency || "").toUpperCase()}`;
+    const type = document.createElement("span");
+    type.className = "type";
+    type.textContent = formatShopReward(item);
+    body.appendChild(title);
+    body.appendChild(rarity);
+    body.appendChild(price);
+    body.appendChild(type);
+    if (item.owned) {
+      const status = document.createElement("span");
+      status.className = "status";
+      status.textContent = "Già acquistato";
+      body.appendChild(status);
+    }
+
+    button.appendChild(figure);
+    button.appendChild(body);
+    card.appendChild(button);
+    container.appendChild(card);
   });
+}
+
+function selectShopItem(itemId) {
+  const items = [...(state.shop?.featured || []), ...(state.shop?.daily || [])];
+  const selected = items.find((item) => item.id === itemId) || null;
+  state.selectedShopItemId = selected ? itemId : null;
+  [shopFeatured, shopDaily]
+    .filter(Boolean)
+    .forEach((list) => {
+      Array.from(list.children).forEach((node) => {
+        node.classList.toggle("selected", selected && node.dataset.itemId === selected.id);
+      });
+    });
+  updateShopPreview(selected);
+}
+
+function updateShopPreview(item) {
+  if (!shopBuyButton) return;
+  if (!item) {
+    shopBuyButton.disabled = true;
+    shopBuyButton.dataset.itemId = "";
+    if (shopPreviewName) shopPreviewName.textContent = "Seleziona un oggetto";
+    if (shopPreviewDescription)
+      shopPreviewDescription.textContent = "Seleziona un oggetto per visualizzarne la ricompensa e il costo.";
+    if (shopPreviewRarity) shopPreviewRarity.textContent = "-";
+    if (shopPreviewPrice) shopPreviewPrice.textContent = "-";
+    if (shopPreviewType) shopPreviewType.textContent = "-";
+    if (shopPreviewOwned) shopPreviewOwned.textContent = "-";
+    if (shopPreviewImage && shopPreviewImage.tagName === "IMG") {
+      shopPreviewImage.src = "";
+      shopPreviewImage.alt = "Anteprima oggetto";
+    }
+    shopBuyButton.textContent = "Seleziona un oggetto";
+    return;
+  }
+
+  if (shopPreviewName) shopPreviewName.textContent = item.name;
+  if (shopPreviewDescription) shopPreviewDescription.textContent = item.description || "";
+  if (shopPreviewRarity) shopPreviewRarity.textContent = item.rarity || "";
+  if (shopPreviewPrice) shopPreviewPrice.textContent = `${item.price} ${String(item.currency || "").toUpperCase()}`;
+  if (shopPreviewType) shopPreviewType.textContent = formatShopReward(item);
+  if (shopPreviewOwned) shopPreviewOwned.textContent = item.owned ? "Sì" : "No";
+  if (shopPreviewImage && shopPreviewImage.tagName === "IMG") {
+    shopPreviewImage.src = item.thumbnailUrl;
+    shopPreviewImage.alt = item.name;
+  }
+  shopBuyButton.dataset.itemId = item.id;
+  shopBuyButton.disabled = Boolean(item.owned);
+  shopBuyButton.textContent = item.owned ? "Già acquistato" : "Acquista ora";
+}
+
+function bindShop() {
+  const handler = (event) => {
+    const card = event.target.closest("li[data-item-id]");
+    if (!card) return;
+    selectShopItem(card.dataset.itemId);
+  };
+  if (shopFeatured) shopFeatured.addEventListener("click", handler);
+  if (shopDaily) shopDaily.addEventListener("click", handler);
+  if (shopBuyButton) {
+    shopBuyButton.addEventListener("click", async () => {
+      if (shopBuyButton.disabled) return;
+      const itemId = shopBuyButton.dataset.itemId;
+      if (!itemId) return;
+      await purchaseShopItem(itemId);
+    });
+  }
+}
+
+async function purchaseShopItem(itemId) {
+  try {
+    const response = await fetch("/api/shop/purchase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId }),
+    });
+    if (!response.ok) {
+      throw new Error(`Purchase failed ${response.status}`);
+    }
+    await response.json();
+    await refreshLobby();
+    if (state.shop && [...(state.shop.featured || []), ...(state.shop.daily || [])].some((item) => item.id === itemId)) {
+      selectShopItem(itemId);
+    }
+  } catch (error) {
+    console.error("Impossibile completare l'acquisto", error);
+  }
 }
 
 function renderProfile(profile) {

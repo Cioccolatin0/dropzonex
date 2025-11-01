@@ -37,14 +37,14 @@ const MATCH_PHASES = [
 ];
 
 const ENEMY_ARCHETYPES = [
-  { codename: "Spectre Cell", behavior: "aggressive", damage: 18 },
-  { codename: "Shadow Lance", behavior: "balanced", damage: 14 },
-  { codename: "Nova Drift", behavior: "aggressive", damage: 16 },
-  { codename: "Helix Ward", behavior: "defensive", damage: 12 },
-  { codename: "Pulse Hydra", behavior: "balanced", damage: 15 },
-  { codename: "Rift Phantom", behavior: "aggressive", damage: 17 },
-  { codename: "Zero Shade", behavior: "balanced", damage: 14 },
-  { codename: "Ion Seraph", behavior: "defensive", damage: 13 },
+  { codename: "Spectre Cell", behavior: "aggressive", damage: 9 },
+  { codename: "Shadow Lance", behavior: "balanced", damage: 8 },
+  { codename: "Nova Drift", behavior: "aggressive", damage: 10 },
+  { codename: "Helix Ward", behavior: "defensive", damage: 7 },
+  { codename: "Pulse Hydra", behavior: "balanced", damage: 8 },
+  { codename: "Rift Phantom", behavior: "aggressive", damage: 9 },
+  { codename: "Zero Shade", behavior: "balanced", damage: 8 },
+  { codename: "Ion Seraph", behavior: "defensive", damage: 7 },
 ];
 
 const scoreboardState = new Map();
@@ -134,44 +134,71 @@ function stopTimer() {
 class EnemyAgent {
   constructor(game, profile, rig) {
     this.game = game;
-    this.profile = profile;
+    this.profile = { ...profile };
     this.rig = rig;
     this.mesh = rig.mesh;
     this.mesh.userData.enemy = this;
     this.mesh.position.copy(profile.spawn.clone());
     this.mesh.position.y = 1.2;
-    this.health = 120;
-    this.cooldown = 1.4 + Math.random();
+    this.health = 150;
+    this.cooldown = 1.6 + Math.random() * 0.6;
     this.reloadTimer = 0;
+    this.strafeTimer = 1.2 + Math.random() * 1.4;
+    this.strafeDirection = Math.random() > 0.5 ? 1 : -1;
+    this.spawnPoint = profile.spawn.clone();
   }
 
   update(delta) {
+    if (!this.game.missionActive) {
+      this.rig.play("idle");
+      return;
+    }
     const playerPosition = this.game.controls.getObject().position;
     const toPlayer = new THREE.Vector3().subVectors(playerPosition, this.mesh.position);
     const distance = toPlayer.length();
     const behavior = this.profile.behavior;
-    const speed = behavior === "aggressive" ? 6.5 : behavior === "defensive" ? 3.6 : 4.6;
+    const desiredDistance = behavior === "defensive" ? 22 : behavior === "balanced" ? 18 : 14;
+    const approachSpeed = behavior === "aggressive" ? 7 : behavior === "balanced" ? 5.6 : 4.6;
+    const retreatSpeed = 6.2;
+    const strafeSpeed = 3.8;
 
-    if (distance > 3) {
-      toPlayer.normalize();
-      this.mesh.position.addScaledVector(toPlayer, speed * delta);
-      this.mesh.position.y = 1.2;
+    toPlayer.normalize();
+
+    if (distance > desiredDistance + 2) {
+      this.mesh.position.addScaledVector(toPlayer, approachSpeed * delta);
       this.rig.play("run");
+    } else if (distance < desiredDistance - 3) {
+      this.mesh.position.addScaledVector(toPlayer, -retreatSpeed * delta);
+      this.rig.play("run");
+    } else {
+      this.strafeTimer -= delta;
+      if (this.strafeTimer <= 0) {
+        this.strafeDirection = Math.random() > 0.5 ? 1 : -1;
+        this.strafeTimer = 1.2 + Math.random() * 1.8;
+      }
+      const up = new THREE.Vector3(0, 1, 0);
+      const strafe = new THREE.Vector3().crossVectors(up, toPlayer).normalize().multiplyScalar(this.strafeDirection);
+      this.mesh.position.addScaledVector(strafe, strafeSpeed * delta);
+      this.rig.play("aim");
     }
 
-    if (distance <= 3) {
-      this.rig.play("idle");
-    }
-
+    this.mesh.position.y = 1.2;
+    this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -36, 36);
+    this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -36, 36);
     this.mesh.lookAt(playerPosition.x, this.mesh.position.y, playerPosition.z);
 
     this.cooldown -= delta;
-    if (distance < 28 && this.cooldown <= 0) {
-      this.cooldown = behavior === "aggressive" ? 0.9 : behavior === "defensive" ? 1.6 : 1.2;
-      const burst = behavior === "defensive" ? 2 : 3;
-      this.game.inflictPlayerDamage(this.profile.damage * burst * 0.5);
-      this.game.showDamage(`${this.profile.codename} ti colpisce`);
-      addFeedEntry(`${this.profile.codename} apre il fuoco.`);
+    if (distance < desiredDistance + 8 && this.cooldown <= 0) {
+      this.cooldown =
+        behavior === "aggressive"
+          ? 1.1 + Math.random() * 0.5
+          : behavior === "defensive"
+          ? 1.9 + Math.random() * 0.6
+          : 1.4 + Math.random() * 0.5;
+      const burst = behavior === "aggressive" ? 2.4 : behavior === "balanced" ? 2 : 1.6;
+      this.game.inflictPlayerDamage(this.profile.damage * burst);
+      this.game.showDamage(`${this.profile.codename} ti colpisce.`);
+      addFeedEntry(`${this.profile.codename} ingaggia il combattimento.`);
     }
   }
 
@@ -201,9 +228,11 @@ class ShooterGame {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+    const initialWidth = window.innerWidth || canvas.clientWidth || 1280;
+    const initialHeight = window.innerHeight || canvas.clientHeight || 720;
+    this.renderer.setSize(initialWidth, initialHeight, false);
 
-    this.camera = new THREE.PerspectiveCamera(74, canvas.clientWidth / canvas.clientHeight, 0.1, 200);
+    this.camera = new THREE.PerspectiveCamera(74, initialWidth / initialHeight, 0.1, 200);
     this.camera.position.set(0, 1.6, 6);
 
     this.controls = new PointerLockControls(this.camera, canvas);
@@ -260,17 +289,27 @@ class ShooterGame {
       animations: [],
     };
 
+    this.enemyBlueprints = ENEMY_ARCHETYPES.map((profile, index) => ({ ...profile, spawnIndex: index }));
+    this.pendingEnemies = [];
     this.enemies = [];
-    this.enemyCount = ENEMY_ARCHETYPES.length;
+    this.totalEnemies = this.enemyBlueprints.length;
+    this.remainingEnemies = this.totalEnemies;
+    this.maxConcurrentEnemies = Math.min(4, this.totalEnemies);
+    this.reinforcementTimer = 4;
     this.missionEnded = false;
+    this.missionActive = false;
+    this.hasLaunched = false;
     this.hitMarkerTimeout = null;
     this.damageTimeout = null;
     this.rigs = [];
+    this.shieldRegenCooldown = 0;
+    this.healthRegenCooldown = 3;
 
     this.animate = this.animate.bind(this);
     this.onResize = this.onResize.bind(this);
     this.handleClick = this.handleClick.bind(this);
     this.handlePointerLockChange = this.handlePointerLockChange.bind(this);
+    this.beginMission = this.beginMission.bind(this);
   }
 
   async boot() {
@@ -286,9 +325,9 @@ class ShooterGame {
     addFeedEntry("Connessione alla simulazione tattica completata.");
     if (statusLabel) statusLabel.textContent = "Operazione attiva · Briefing tattico";
     if (objectiveLabel) objectiveLabel.textContent = "Briefing tattico";
-    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.enemyCount);
+    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.remainingEnemies);
     if (allyScoreLabel) allyScoreLabel.textContent = String(this.player.kills);
-    if (enemyScoreLabel) enemyScoreLabel.textContent = "0";
+    if (enemyScoreLabel) enemyScoreLabel.textContent = String(this.totalEnemies - this.remainingEnemies);
     this.updateWeaponUI();
     this.updateVitals();
     updateScoreboard(this.player.id, { status: "Operativo", kills: this.player.kills, deaths: this.player.deaths });
@@ -419,23 +458,35 @@ class ShooterGame {
   }
 
   spawnEnemies() {
-    const radius = 20;
-    ENEMY_ARCHETYPES.forEach((profile, index) => {
-      const angle = (index / ENEMY_ARCHETYPES.length) * Math.PI * 2;
-      const spawn = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-      const rig = this.createAgentRig({ isEnemy: true });
-      const mesh = rig.mesh;
-      mesh.position.copy(spawn);
-      mesh.rotation.y = angle + Math.PI;
-      mesh.scale.multiplyScalar(1.05);
-      this.scene.add(mesh);
-      rig.play("idle");
-      this.registerRig(rig);
-      const enemy = new EnemyAgent(this, { ...profile, spawn }, rig);
-      this.enemies.push(enemy);
-    });
-    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.enemies.length);
+    this.pendingEnemies = this.enemyBlueprints.map((profile) => ({ ...profile }));
+    this.enemies = [];
+    this.remainingEnemies = this.totalEnemies;
+    const initialBatch = Math.min(this.maxConcurrentEnemies, this.pendingEnemies.length);
+    for (let i = 0; i < initialBatch; i += 1) {
+      const blueprint = this.pendingEnemies.shift();
+      this.spawnEnemy(blueprint);
+    }
+    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.remainingEnemies);
+    enemyScoreLabel.textContent = "0";
     addFeedEntry("Cellule nemiche individuate nella zona d'estrazione.");
+  }
+
+  spawnEnemy(blueprint) {
+    if (!blueprint) return null;
+    const angle = (blueprint.spawnIndex / Math.max(1, this.totalEnemies)) * Math.PI * 2;
+    const radius = 26 + Math.random() * 6;
+    const spawn = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+    const rig = this.createAgentRig({ isEnemy: true });
+    const mesh = rig.mesh;
+    mesh.position.copy(spawn);
+    mesh.rotation.y = angle + Math.PI;
+    mesh.scale.multiplyScalar(1.05);
+    this.scene.add(mesh);
+    rig.play("idle");
+    this.registerRig(rig);
+    const enemy = new EnemyAgent(this, { ...blueprint, spawn }, rig);
+    this.enemies.push(enemy);
+    return enemy;
   }
 
   createAgentRig({ isEnemy, cosmetic }) {
@@ -523,11 +574,25 @@ class ShooterGame {
 
   handlePointerLockChange() {
     if (document.pointerLockElement === this.canvas) {
+      this.beginMission();
       if (introOverlay) introOverlay.hidden = true;
       this.weapon.triggerHeld = false;
     } else if (!this.missionEnded) {
+      this.missionActive = false;
       if (introOverlay) introOverlay.hidden = false;
     }
+  }
+
+  beginMission() {
+    if (this.missionActive) return;
+    this.missionActive = true;
+    if (!this.hasLaunched) {
+      addFeedEntry("Operazione avviata.");
+      this.hasLaunched = true;
+    }
+    const phaseName = MATCH_PHASES[Math.min(MATCH_PHASES.length - 1, Math.max(1, phaseIndex))];
+    if (statusLabel) statusLabel.textContent = `Operazione attiva · ${phaseName}`;
+    if (objectiveLabel) objectiveLabel.textContent = phaseName;
   }
 
   onKeyDown(event) {
@@ -656,6 +721,8 @@ class ShooterGame {
     if (healthDamage > 0) {
       this.player.health = Math.max(0, this.player.health - healthDamage);
     }
+    this.shieldRegenCooldown = 4.2;
+    this.healthRegenCooldown = 6.5;
     this.updateVitals();
     if (this.player.health <= 0) {
       this.player.deaths += 1;
@@ -669,8 +736,8 @@ class ShooterGame {
 
   onEnemyDown(enemy, attackerId) {
     this.enemies = this.enemies.filter((e) => e !== enemy);
-    this.enemyCount = this.enemies.length;
-    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.enemyCount);
+    this.remainingEnemies = Math.max(0, this.remainingEnemies - 1);
+    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.remainingEnemies);
     if (attackerId === this.player.id) {
       this.player.kills += 1;
       allyScoreLabel.textContent = String(this.player.kills);
@@ -678,11 +745,13 @@ class ShooterGame {
         kills: this.player.kills,
       });
     }
-    const defeated = ENEMY_ARCHETYPES.length - this.enemyCount;
+    const defeated = this.totalEnemies - this.remainingEnemies;
     enemyScoreLabel.textContent = String(defeated);
     addFeedEntry(`${enemy.profile.codename} neutralizzato.`);
-    if (this.enemyCount <= 0) {
+    if (this.remainingEnemies <= 0 && this.enemies.length === 0 && this.pendingEnemies.length === 0) {
       this.endMission(true);
+    } else {
+      this.triggerReinforcement();
     }
   }
 
@@ -743,6 +812,55 @@ class ShooterGame {
     }
   }
 
+  tickRegeneration(delta) {
+    if (this.missionEnded) return;
+    if (this.shieldRegenCooldown > 0) {
+      this.shieldRegenCooldown = Math.max(0, this.shieldRegenCooldown - delta);
+    } else if (this.player.shield < this.player.maxShield) {
+      const previous = this.player.shield;
+      this.player.shield = Math.min(this.player.maxShield, this.player.shield + 12 * delta);
+      if (this.player.shield !== previous) {
+        this.updateVitals();
+      }
+    }
+
+    if (this.player.shield >= this.player.maxShield) {
+      if (this.healthRegenCooldown > 0) {
+        this.healthRegenCooldown = Math.max(0, this.healthRegenCooldown - delta);
+      } else if (this.player.health < this.player.maxHealth) {
+        const before = this.player.health;
+        this.player.health = Math.min(this.player.maxHealth, this.player.health + 5 * delta);
+        if (this.player.health !== before) {
+          this.updateVitals();
+        }
+      }
+    } else {
+      this.healthRegenCooldown = Math.max(this.healthRegenCooldown, 2.5);
+    }
+  }
+
+  maybeSpawnReinforcements(delta) {
+    if (this.pendingEnemies.length === 0) return;
+    const desiredActive = Math.min(this.maxConcurrentEnemies, this.remainingEnemies);
+    if (this.enemies.length >= desiredActive) return;
+    this.reinforcementTimer -= delta;
+    if (this.reinforcementTimer > 0) return;
+    const blueprint = this.pendingEnemies.shift();
+    const spawned = this.spawnEnemy(blueprint);
+    this.reinforcementTimer = 5 + Math.random() * 2;
+    if (spawned && this.missionActive) {
+      addFeedEntry(`${spawned.profile.codename} si unisce allo scontro.`);
+    }
+    if (enemyRemainingLabel) {
+      enemyRemainingLabel.textContent = String(this.remainingEnemies);
+    }
+  }
+
+  triggerReinforcement() {
+    if (this.pendingEnemies.length === 0) return;
+    this.reinforcementTimer = Math.min(this.reinforcementTimer, this.missionActive ? 2.2 : 0.8);
+  }
+
   animate() {
     if (this.missionEnded) {
       this.renderer.render(this.scene, this.camera);
@@ -754,6 +872,8 @@ class ShooterGame {
     this.updateMovement(delta);
     this.enemies.forEach((enemy) => enemy.update(delta));
     this.rigs.forEach((rig) => rig.update(delta));
+    this.tickRegeneration(delta);
+    this.maybeSpawnReinforcements(delta);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -769,8 +889,8 @@ class ShooterGame {
   }
 
   onResize() {
-    const width = this.canvas.clientWidth;
-    const height = this.canvas.clientHeight;
+    const width = window.innerWidth || this.canvas.clientWidth || 1280;
+    const height = window.innerHeight || this.canvas.clientHeight || 720;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
@@ -779,6 +899,7 @@ class ShooterGame {
   endMission(victory) {
     if (this.missionEnded) return;
     this.missionEnded = true;
+    this.missionActive = false;
     stopTimer();
     this.controls.unlock();
     if (missionReport) missionReport.hidden = false;

@@ -9,66 +9,66 @@
   </head>
   <body class="match-body">
     <div class="match-root">
-      <header class="match-header" aria-live="polite">
-        <div class="header-left">
-          <span class="brand-mark">Δ</span>
-          <div class="match-meta">
-            <h1>{{ match.mode }}</h1>
-            <p>{{ match.map }}</p>
+      <canvas id="match-canvas"></canvas>
+      <div class="match-overlay">
+        <header class="match-header" aria-live="polite">
+          <div class="header-left">
+            <span class="brand-mark">Δ</span>
+            <div class="match-meta">
+              <h1>{{ match.mode }}</h1>
+              <p>{{ match.map }}</p>
+            </div>
           </div>
-        </div>
-        <div class="header-center">
-          <p id="match-status" class="match-status">Preparazione missione…</p>
-          <div class="match-timer" aria-label="Timer match">
-            <span id="match-timer">00:00</span>
+          <div class="header-center">
+            <p id="match-status" class="match-status">Preparazione missione…</p>
+            <div class="match-timer" aria-label="Timer match">
+              <span id="match-timer">00:00</span>
+            </div>
           </div>
-        </div>
-        <div class="header-right">
-          <button id="return-button" class="ghost">Lascia la missione</button>
-        </div>
-      </header>
+          <div class="header-right">
+            <button id="return-button" class="ghost">Lascia la missione</button>
+          </div>
+        </header>
 
-      <main class="match-grid">
-        <aside class="intel-panel" aria-label="Intel squadra">
-          {% set active_player = session.playerId if session else None %}
-          {% set player_squad = match.playerSquad if match.playerSquad else (match.squads[0] if match.squads else None) %}
-          <div class="squad-heading" {% if player_squad and player_squad.teamColor %}style="--squad-color: {{ player_squad.teamColor }}"{% endif %}>
-            <h2>Squadra Strike</h2>
-            {% if player_squad %}
-            <span class="squad-chip">{{ player_squad.squadId }}</span>
-            {% endif %}
-          </div>
-          <ul id="scoreboard" class="scoreboard">
-            {% for member in player_squad.members if player_squad %}
-            <li
-              class="scoreboard-row{% if member.isBot %} bot{% endif %}{% if active_player and member.playerId == active_player %} active{% endif %}"
-              data-player="{{ member.playerId }}"
-            >
-              <div class="identity">
-                <span class="name">{{ member.displayName }}</span>
-                <span class="tag">{% if member.isBot %}BOT{% else %}AGENTE{% endif %}</span>
-              </div>
-              <div class="statline">
-                <span class="stat" data-field="kills">0</span>
-                <span class="label">Uccisioni</span>
-              </div>
-              <div class="statline">
-                <span class="stat" data-field="deaths">0</span>
-                <span class="label">Down</span>
-              </div>
-              <div class="status-pill" data-field="status">Operativo</div>
-            </li>
-            {% endfor %}
-          </ul>
-          <div class="enemy-count">
-            <span class="count-label">Opponenti rimanenti</span>
-            <span id="enemy-remaining" class="count-value">0</span>
-          </div>
-        </aside>
+        <div class="overlay-stage">
+          <aside class="intel-panel" aria-label="Intel squadra">
+            {% set active_player = session.playerId if session else None %}
+            {% set player_squad = match.playerSquad if match.playerSquad else (match.squads[0] if match.squads else None) %}
+            <div class="squad-heading" {% if player_squad and player_squad.teamColor %}style="--squad-color: {{ player_squad.teamColor }}"{% endif %}>
+              <h2>Squadra Strike</h2>
+              {% if player_squad %}
+              <span class="squad-chip">{{ player_squad.squadId }}</span>
+              {% endif %}
+            </div>
+            <ul id="scoreboard" class="scoreboard">
+              {% for member in player_squad.members if player_squad %}
+              <li
+                class="scoreboard-row{% if member.isBot %} bot{% endif %}{% if active_player and member.playerId == active_player %} active{% endif %}"
+                data-player="{{ member.playerId }}"
+              >
+                <div class="identity">
+                  <span class="name">{{ member.displayName }}</span>
+                  <span class="tag">{% if member.isBot %}BOT{% else %}AGENTE{% endif %}</span>
+                </div>
+                <div class="statline">
+                  <span class="stat" data-field="kills">0</span>
+                  <span class="label">Uccisioni</span>
+                </div>
+                <div class="statline">
+                  <span class="stat" data-field="deaths">0</span>
+                  <span class="label">Down</span>
+                </div>
+                <div class="status-pill" data-field="status">Operativo</div>
+              </li>
+              {% endfor %}
+            </ul>
+            <div class="enemy-count">
+              <span class="count-label">Opponenti rimanenti</span>
+              <span id="enemy-remaining" class="count-value">0</span>
+            </div>
+          </aside>
 
-        <section class="arena" aria-label="Campo di battaglia">
-          <div class="game-wrapper">
-            <canvas id="match-canvas" width="1280" height="720"></canvas>
+          <div class="hud-wrapper" aria-live="off">
             <div class="hud-layer" aria-hidden="true">
               <div class="hud-top">
                 <div class="score-cards">
@@ -111,37 +111,34 @@
               <div id="hit-marker" class="hit-marker" hidden></div>
               <div id="damage-indicator" class="damage-indicator" hidden></div>
             </div>
-            <div id="intro-overlay" class="intro-overlay" role="dialog" aria-modal="true">
-              <div class="overlay-content">
-                <h2>Operazione pronta</h2>
-                <p>Premi <strong>Click sinistro</strong> per armare il puntatore e iniziare la missione.</p>
-                <ul class="control-hints">
-                  <li><span>WASD</span> Movimento</li>
-                  <li><span>Spazio</span> Salto</li>
-                  <li><span>Shift</span> Sprint</li>
-                  <li><span>Click</span> Fuoco</li>
-                </ul>
-              </div>
-            </div>
-            <div id="mission-report" class="mission-report" hidden>
-              <div class="report-card">
-                <h2>Debriefing</h2>
-                <p id="mission-outcome">Missione completata</p>
-                <button id="mission-exit" class="cta-primary">Ritorna alla lobby</button>
-              </div>
-            </div>
           </div>
-        </section>
 
-        <aside class="events-panel" aria-live="polite">
-          <h2>Feed missione</h2>
-          <ul id="event-feed" class="event-feed"></ul>
-        </aside>
-      </main>
+          <aside class="events-panel" aria-live="polite">
+            <h2>Feed missione</h2>
+            <ul id="event-feed" class="event-feed"></ul>
+          </aside>
+        </div>
+      </div>
 
-      <footer class="match-footer">
-        <span>Dropzone X · Simulazione tattica full backend</span>
-      </footer>
+      <div id="intro-overlay" class="intro-overlay" role="dialog" aria-modal="true">
+        <div class="overlay-content">
+          <h2>Operazione pronta</h2>
+          <p>Premi <strong>Click sinistro</strong> per armare il puntatore e iniziare la missione.</p>
+          <ul class="control-hints">
+            <li><span>WASD</span> Movimento</li>
+            <li><span>Spazio</span> Salto</li>
+            <li><span>Shift</span> Sprint</li>
+            <li><span>Click</span> Fuoco</li>
+          </ul>
+        </div>
+      </div>
+      <div id="mission-report" class="mission-report" hidden>
+        <div class="report-card">
+          <h2>Debriefing</h2>
+          <p id="mission-outcome">Missione completata</p>
+          <button id="mission-exit" class="cta-primary">Ritorna alla lobby</button>
+        </div>
+      </div>
     </div>
 
     <script id="match-data" type="application/json">{{ {"match": match, "session": session}|tojson }}</script>

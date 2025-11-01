@@ -107,15 +107,64 @@
               <span class="pass-progress-label" id="pass-progress-label">{{ (lobby.battlePass.progress * 100)|round(0) }}% completato</span>
             </div>
           </header>
-          <p class="panel-subtitle">Completa missioni giornaliere per ottenere XP aggiuntiva e sbloccare la prossima ricompensa.</p>
-          <ul id="pass-track" class="pass-track">
-            {% for reward in lobby.battlePass.rewards %}
-            <li>
-              <span class="label">Tier {{ reward.tier }}</span>
-              <strong>{{ reward.reward }}</strong>
-            </li>
-            {% endfor %}
-          </ul>
+          <div class="pass-layout">
+            <div class="pass-track-wrapper">
+              <p class="panel-subtitle">Scorri le 50 soglie e riscatta ricompense estetiche e valute premium.</p>
+              <ul id="pass-track" class="pass-track" aria-label="Ricompense Battle Pass">
+                {% for tier in lobby.battlePass.tiers %}
+                <li class="pass-card {% if tier.claimed %}claimed{% elif not tier.unlocked %}locked{% endif %}" data-tier-id="{{ tier.id }}">
+                  <button type="button">
+                    <span class="tier-label">Tier {{ tier.tier }}</span>
+                    <figure class="card-thumb">
+                      <img src="{{ tier.thumbnailUrl }}" alt="{{ tier.name }}" loading="lazy" />
+                    </figure>
+                    <div class="card-body">
+                      <strong>{{ tier.name }}</strong>
+                      <span>{{ tier.rarity }}</span>
+                    </div>
+                  </button>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            <aside class="pass-preview" aria-live="polite">
+              <div class="preview-card">
+                <figure id="pass-preview-media" class="preview-media">
+                  {% set first_tier = lobby.battlePass.tiers[0] if lobby.battlePass.tiers else None %}
+                  {% if first_tier %}
+                  <img id="pass-preview-image" src="{{ first_tier.thumbnailUrl }}" alt="Anteprima ricompensa" />
+                  {% else %}
+                  <div id="pass-preview-image" class="preview-placeholder"></div>
+                  {% endif %}
+                </figure>
+                <div class="preview-body">
+                  <h3 id="pass-preview-name">{% if first_tier %}{{ first_tier.name }}{% else %}Seleziona una ricompensa{% endif %}</h3>
+                  <p id="pass-preview-description">{% if first_tier %}{{ first_tier.description }}{% else %}Visualizza i dettagli di una ricompensa del Battle Pass per scoprire come ottenerla.{% endif %}</p>
+                  <dl class="preview-meta">
+                    <div>
+                      <dt>Rarità</dt>
+                      <dd id="pass-preview-rarity">{% if first_tier %}{{ first_tier.rarity }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Stato</dt>
+                      <dd id="pass-preview-status">{% if first_tier %}{% if first_tier.claimed %}Riscattato{% elif first_tier.unlocked %}Disponibile{% else %}Bloccato{% endif %}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Ricompensa</dt>
+                      <dd id="pass-preview-reward">{% if first_tier %}{{ first_tier.reward.type|capitalize }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Tipo Pass</dt>
+                      <dd id="pass-preview-premium">{% if first_tier %}{% if first_tier.premium %}Premium{% else %}Base{% endif %}{% else %}-{% endif %}</dd>
+                    </div>
+                  </dl>
+                  <button id="pass-claim-button" class="cta" {% if first_tier %}data-tier-id="{{ first_tier.id }}"{% else %}disabled{% endif %}>
+                    {% if first_tier %}{% if first_tier.claimed %}Già riscattato{% elif first_tier.unlocked %}Riscatta ricompensa{% elif first_tier.unlockCost %}Sblocca per {{ first_tier.unlockCost }} {{ first_tier.unlockCurrency|upper }}{% else %}Bloccato{% endif %}{% else %}Seleziona un tier{% endif %}
+                  </button>
+                </div>
+              </div>
+            </aside>
+          </div>
         </section>
 
         <section class="panel locker-panel" data-view-section="locker" {% if active_view != 'locker' %}hidden{% endif %}>
@@ -249,36 +298,84 @@
         </section>
 
         <section class="panel shop-panel" data-view-section="shop" {% if active_view != 'shop' %}hidden{% endif %}>
-          <h2>Negozio</h2>
-          <div class="shop-columns">
+          <header class="panel-header">
             <div>
+              <h2>Negozio</h2>
+              <p>Offerte aggiornate ogni 24 ore.</p>
+            </div>
+          </header>
+          <div class="shop-layout">
+            <div class="shop-section">
               <h3>In evidenza</h3>
-              <ul id="shop-featured" class="shop-list">
+              <ul id="shop-featured" class="shop-grid">
                 {% for item in lobby.shop.featured %}
-                <li>
-                  <div>
-                    <strong>{{ item.name }}</strong>
-                    <span class="rarity">{{ item.rarity }}</span>
-                  </div>
-                  <span class="price">{{ item.price }} ⛁</span>
+                <li class="shop-card {% if item.owned %}owned{% endif %}" data-item-id="{{ item.id }}">
+                  <button type="button">
+                    <figure class="card-thumb"><img src="{{ item.thumbnailUrl }}" alt="{{ item.name }}" loading="lazy" /></figure>
+                    <div class="card-body">
+                      <strong>{{ item.name }}</strong>
+                      <span class="rarity">{{ item.rarity }}</span>
+                      <span class="price">{{ item.price }} {{ item.currency|upper }}</span>
+                    </div>
+                  </button>
                 </li>
                 {% endfor %}
               </ul>
             </div>
-            <div>
+            <div class="shop-section">
               <h3>Oggetti giornalieri</h3>
-              <ul id="shop-daily" class="shop-list">
+              <ul id="shop-daily" class="shop-grid">
                 {% for item in lobby.shop.daily %}
-                <li>
-                  <div>
-                    <strong>{{ item.name }}</strong>
-                    <span class="rarity">{{ item.rarity }}</span>
-                  </div>
-                  <span class="price">{{ item.price }} ⛁</span>
+                <li class="shop-card {% if item.owned %}owned{% endif %}" data-item-id="{{ item.id }}">
+                  <button type="button">
+                    <figure class="card-thumb"><img src="{{ item.thumbnailUrl }}" alt="{{ item.name }}" loading="lazy" /></figure>
+                    <div class="card-body">
+                      <strong>{{ item.name }}</strong>
+                      <span class="rarity">{{ item.rarity }}</span>
+                      <span class="price">{{ item.price }} {{ item.currency|upper }}</span>
+                    </div>
+                  </button>
                 </li>
                 {% endfor %}
               </ul>
             </div>
+            <aside class="shop-preview" aria-live="polite">
+              <div class="preview-card">
+                {% set first_item = lobby.shop.featured[0] if lobby.shop.featured else (lobby.shop.daily[0] if lobby.shop.daily else None) %}
+                <figure class="preview-media">
+                  {% if first_item %}
+                  <img id="shop-preview-image" src="{{ first_item.thumbnailUrl }}" alt="Anteprima oggetto" />
+                  {% else %}
+                  <div id="shop-preview-image" class="preview-placeholder"></div>
+                  {% endif %}
+                </figure>
+                <div class="preview-body">
+                  <h3 id="shop-preview-name">{% if first_item %}{{ first_item.name }}{% else %}Seleziona un oggetto{% endif %}</h3>
+                  <p id="shop-preview-description">{% if first_item %}{{ first_item.description }}{% else %}Seleziona un oggetto per visualizzarne i dettagli e procedere all'acquisto.{% endif %}</p>
+                  <dl class="preview-meta">
+                    <div>
+                      <dt>Rarità</dt>
+                      <dd id="shop-preview-rarity">{% if first_item %}{{ first_item.rarity }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Prezzo</dt>
+                      <dd id="shop-preview-price">{% if first_item %}{{ first_item.price }} {{ first_item.currency|upper }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Tipologia</dt>
+                      <dd id="shop-preview-type">{% if first_item %}{{ first_item.rewardType|capitalize }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Posseduto</dt>
+                      <dd id="shop-preview-owned">{% if first_item %}{% if first_item.owned %}Sì{% else %}No{% endif %}{% else %}-{% endif %}</dd>
+                    </div>
+                  </dl>
+                  <button id="shop-buy-button" class="cta" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
+                    {% if first_item %}{% if first_item.owned %}Già acquistato{% else %}Acquista ora{% endif %}{% else %}Seleziona un oggetto{% endif %}
+                  </button>
+                </div>
+              </div>
+            </aside>
           </div>
         </section>
 

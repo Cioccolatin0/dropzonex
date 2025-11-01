@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from .cosmetics import CosmeticRepository
 from .matchmaker import Matchmaker
+from .progression import PlayerProgression
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "backend" / "static"
@@ -30,6 +31,7 @@ app.add_middleware(
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 cosmetics = CosmeticRepository()
+progression = PlayerProgression(cosmetics)
 matchmaker = Matchmaker(cosmetics=cosmetics)
 
 
@@ -104,7 +106,38 @@ async def equip(payload: Dict) -> Dict:
             result["weaponSkin"] = cosmetics.equip_weapon_skin(weapon_skin_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result or {"updated": False}
+
+
+@app.post("/api/battle-pass/claim")
+async def claim_battle_pass(payload: Dict) -> Dict:
+    tier_id = payload.get("tierId")
+    if not tier_id:
+        raise HTTPException(status_code=400, detail="TierId mancante")
+    allow_unlock = bool(payload.get("unlock"))
+    try:
+        result = progression.claim_battle_pass_tier(tier_id, allow_unlock=allow_unlock)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@app.post("/api/shop/purchase")
+async def purchase_shop_item(payload: Dict) -> Dict:
+    item_id = payload.get("itemId")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="ItemId mancante")
+    try:
+        result = progression.purchase_shop_item(item_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
 
 
 @app.post("/api/queue")
@@ -181,10 +214,8 @@ async def _build_lobby_payload() -> Dict:
     cosmetics_overview = cosmetics.lobby_overview()
     equipped_outfit = cosmetics_overview["equippedOutfit"]
     equipped_skin = cosmetics_overview["equippedWeaponSkin"]
-    next_tiers = [
-        {"tier": tier, "reward": f"Ricompensa estetica #{tier}"}
-        for tier in range(1, 51)
-    ]
+    battle_pass = progression.battle_pass_overview()
+    shop = progression.storefront()
     return {
         "hero": {
             "displayName": "Pilota Zenith",
@@ -200,17 +231,8 @@ async def _build_lobby_payload() -> Dict:
             },
             "cosmetics": cosmetics_overview,
         },
-        "currencies": {
-            "credits": 1250,
-            "flux": 460,
-            "tokens": 12,
-        },
-        "battlePass": {
-            "level": 27,
-            "progress": 0.54,
-            "rewards": next_tiers[:5],
-            "totalTiers": 50,
-        },
+        "currencies": dict(progression.currencies),
+        "battlePass": battle_pass,
         "activity": snapshot,
         "dailyHighlight": {
             "mode": random.choice(["Assalto Orbitale", "Corsa ai Dati", "Dominio"]),
@@ -220,26 +242,8 @@ async def _build_lobby_payload() -> Dict:
             "headline": "Operazione Nebula in arrivo",
             "blurb": "Nuovi obiettivi dinamici e ricompense a tempo limitato ogni settimana.",
         },
-        "locker": {
-            "outfit": equipped_outfit["name"],
-            "backbling": "Nucleo Orbitale",
-            "pickaxe": "Falce Ionica",
-            "glider": "Ala Luminosa",
-            "wrap": equipped_skin["name"],
-            "emotes": ["Scia Nova", "Cadenza Zero"],
-            "cosmetics": cosmetics_overview,
-        },
-        "shop": {
-            "featured": [
-                {"name": "Bundle Eclissi", "price": 2400, "rarity": "Leggendario"},
-                {"name": "Sentinella Prisma", "price": 2000, "rarity": "Epico"},
-            ],
-            "daily": [
-                {"name": "Scia Holo", "price": 800, "rarity": "Raro"},
-                {"name": "Emote Drift", "price": 500, "rarity": "Non Comune"},
-                {"name": "Avvolgimento Ion", "price": 300, "rarity": "Comune"},
-            ],
-        },
+        "locker": progression.locker_overview(cosmetics_overview),
+        "shop": shop,
         "profile": {
             "matchesPlayed": 326,
             "wins": 47,
