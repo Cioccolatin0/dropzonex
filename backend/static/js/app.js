@@ -6,21 +6,42 @@ const cancelButton = document.getElementById("cancel-button");
 const queueStatus = document.getElementById("queue-status");
 const squadContainer = document.getElementById("squad");
 const heroName = document.getElementById("hero-name");
+const heroTitle = document.getElementById("hero-title");
+const heroLevel = document.getElementById("hero-level");
+const xpFill = document.getElementById("xp-fill");
+const loadoutPrimary = document.getElementById("loadout-primary");
+const loadoutSecondary = document.getElementById("loadout-secondary");
+const loadoutGadget = document.getElementById("loadout-gadget");
 const highlightMode = document.getElementById("highlight-mode");
 const highlightMap = document.getElementById("highlight-map");
+const newsHeadline = document.getElementById("news-headline");
+const newsBlurb = document.getElementById("news-blurb");
 const statOnline = document.getElementById("stat-online");
 const statSearching = document.getElementById("stat-searching");
 const statActive = document.getElementById("stat-active");
 const currencyCredits = document.getElementById("currency-credits");
 const currencyFlux = document.getElementById("currency-flux");
 const currencyTokens = document.getElementById("currency-tokens");
-
-const panels = {
-  pass: document.getElementById("panel-pass"),
-  locker: document.getElementById("panel-locker"),
-  shop: document.getElementById("panel-shop"),
-  profile: document.getElementById("panel-profile"),
-};
+const passLevel = document.getElementById("pass-level");
+const passProgress = document.getElementById("pass-progress");
+const passProgressLabel = document.getElementById("pass-progress-label");
+const passTrack = document.getElementById("pass-track");
+const lockerOutfit = document.getElementById("locker-outfit");
+const lockerBackbling = document.getElementById("locker-backbling");
+const lockerPickaxe = document.getElementById("locker-pickaxe");
+const lockerGlider = document.getElementById("locker-glider");
+const lockerWrap = document.getElementById("locker-wrap");
+const lockerEmotes = document.getElementById("locker-emotes");
+const shopFeatured = document.getElementById("shop-featured");
+const shopDaily = document.getElementById("shop-daily");
+const profileMatches = document.getElementById("profile-matches");
+const profileWins = document.getElementById("profile-wins");
+const profileWinrate = document.getElementById("profile-winrate");
+const profileKdr = document.getElementById("profile-kdr");
+const profileTime = document.getElementById("profile-time");
+const navButtons = Array.from(document.querySelectorAll(".nav-btn"));
+const viewSections = Array.from(document.querySelectorAll("[data-view-section]"));
+const allowedViews = new Set(["play", "pass", "locker", "shop", "profile"]);
 
 const state = {
   sessionId: null,
@@ -41,31 +62,43 @@ function initialise() {
   hydrateLobby(initialLobby);
   bindNavigation();
   bindMatchmaking();
-  toggleView("pass");
+  const url = new URL(window.location.href);
+  const requestedView = url.searchParams.get("view") || document.body.dataset.activeView;
+  toggleView(requestedView);
   window.setInterval(refreshLobby, 10000);
 }
 
 function bindNavigation() {
-  document.querySelectorAll(".nav-btn").forEach((button) => {
-    button.addEventListener("click", () => toggleView(button.dataset.view));
+  navButtons.forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      toggleView(button.dataset.view, { updateHistory: true });
+    });
+  });
+
+  window.addEventListener("popstate", (event) => {
+    const stateView = event.state?.view;
+    const fallback = new URL(window.location.href).searchParams.get("view");
+    toggleView(stateView || fallback);
   });
 }
 
-function toggleView(view) {
-  document.querySelectorAll(".nav-btn").forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === view);
+function toggleView(view, options = {}) {
+  const { updateHistory = false } = options;
+  const targetView = allowedViews.has(view) ? view : "play";
+  document.body.dataset.activeView = targetView;
+  navButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === targetView);
+  });
+  viewSections.forEach((section) => {
+    section.hidden = section.dataset.viewSection !== targetView;
   });
 
-  Object.entries(panels).forEach(([panelName, element]) => {
-    if (!element) {
-      return;
-    }
-    if (view === "play") {
-      element.hidden = panelName !== "pass";
-    } else {
-      element.hidden = panelName !== view;
-    }
-  });
+  if (updateHistory) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", targetView);
+    window.history.pushState({ view: targetView }, "", url);
+  }
 }
 
 function bindMatchmaking() {
@@ -94,6 +127,24 @@ function bindMatchmaking() {
 function hydrateLobby(lobby) {
   if (!lobby) return;
   heroName.textContent = lobby.hero.displayName;
+  if (heroTitle) {
+    heroTitle.textContent = lobby.hero.title;
+  }
+  if (heroLevel) {
+    heroLevel.textContent = lobby.hero.level;
+  }
+  if (xpFill) {
+    xpFill.style.width = `${Math.round((lobby.hero.xpProgress || 0) * 100)}%`;
+  }
+  if (loadoutPrimary) {
+    loadoutPrimary.textContent = lobby.hero.loadout?.primary ?? "-";
+  }
+  if (loadoutSecondary) {
+    loadoutSecondary.textContent = lobby.hero.loadout?.secondary ?? "-";
+  }
+  if (loadoutGadget) {
+    loadoutGadget.textContent = lobby.hero.loadout?.gadget ?? "-";
+  }
   highlightMode.textContent = lobby.dailyHighlight.mode;
   highlightMap.textContent = lobby.dailyHighlight.map;
   statOnline.textContent = lobby.activity.onlinePlayers;
@@ -102,6 +153,26 @@ function hydrateLobby(lobby) {
   currencyCredits.textContent = lobby.currencies.credits;
   currencyFlux.textContent = lobby.currencies.flux;
   currencyTokens.textContent = lobby.currencies.tokens;
+  if (newsHeadline) {
+    newsHeadline.textContent = lobby.news.headline;
+  }
+  if (newsBlurb) {
+    newsBlurb.textContent = lobby.news.blurb;
+  }
+  if (passLevel) {
+    passLevel.textContent = lobby.battlePass.level;
+  }
+  if (passProgress) {
+    passProgress.style.width = `${Math.round((lobby.battlePass.progress || 0) * 100)}%`;
+  }
+  if (passProgressLabel) {
+    passProgressLabel.textContent = `${Math.round((lobby.battlePass.progress || 0) * 100)}% completato`;
+  }
+  renderPassTrack(lobby.battlePass.rewards || []);
+  renderLocker(lobby.locker || {});
+  renderShopList(shopFeatured, lobby.shop?.featured || []);
+  renderShopList(shopDaily, lobby.shop?.daily || []);
+  renderProfile(lobby.profile || {});
 }
 
 async function refreshLobby() {
@@ -261,6 +332,71 @@ function resetQueue() {
   cancelButton.hidden = true;
   queueStatus.textContent = "Pronto a lanciarti.";
   renderSquadPlaceholder();
+}
+
+function renderPassTrack(rewards) {
+  if (!passTrack) return;
+  passTrack.innerHTML = "";
+  rewards.forEach((reward) => {
+    const item = document.createElement("li");
+    const tier = document.createElement("span");
+    tier.className = "label";
+    tier.textContent = `Tier ${reward.tier}`;
+    const rewardName = document.createElement("strong");
+    rewardName.textContent = reward.reward;
+    item.appendChild(tier);
+    item.appendChild(rewardName);
+    passTrack.appendChild(item);
+  });
+}
+
+function renderLocker(locker) {
+  if (lockerOutfit) lockerOutfit.textContent = locker.outfit ?? "-";
+  if (lockerBackbling) lockerBackbling.textContent = locker.backbling ?? "-";
+  if (lockerPickaxe) lockerPickaxe.textContent = locker.pickaxe ?? "-";
+  if (lockerGlider) lockerGlider.textContent = locker.glider ?? "-";
+  if (lockerWrap) lockerWrap.textContent = locker.wrap ?? "-";
+  if (lockerEmotes) {
+    lockerEmotes.innerHTML = "";
+    (locker.emotes || []).forEach((emote) => {
+      const li = document.createElement("li");
+      li.textContent = emote;
+      lockerEmotes.appendChild(li);
+    });
+  }
+}
+
+function renderShopList(container, items) {
+  if (!container) return;
+  container.innerHTML = "";
+  items.forEach((item) => {
+    const row = document.createElement("li");
+    const info = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = item.name;
+    const rarity = document.createElement("span");
+    rarity.className = "rarity";
+    rarity.textContent = item.rarity;
+    info.appendChild(name);
+    info.appendChild(rarity);
+    const price = document.createElement("span");
+    price.className = "price";
+    price.textContent = `${item.price} ⛁`;
+    row.appendChild(info);
+    row.appendChild(price);
+    container.appendChild(row);
+  });
+}
+
+function renderProfile(profile) {
+  if (profileMatches) profileMatches.textContent = profile.matchesPlayed ?? 0;
+  if (profileWins) profileWins.textContent = profile.wins ?? 0;
+  if (profileWinrate) profileWinrate.textContent = profile.winRate != null ? `${profile.winRate}%` : "0%";
+  if (profileKdr) profileKdr.textContent = profile.kdr ?? "0";
+  if (profileTime) {
+    const minutes = profile.timePlayedMinutes ?? 0;
+    profileTime.textContent = `${Math.round((minutes / 60) * 10) / 10} h`;
+  }
 }
 
 initialise();

@@ -39,9 +39,16 @@ async def startup() -> None:
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request) -> HTMLResponse:
     lobby_payload = await _build_lobby_payload()
+    active_view = request.query_params.get("view", "play")
+    if active_view not in {"play", "pass", "locker", "shop", "profile"}:
+        active_view = "play"
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "lobby": lobby_payload},
+        {
+            "request": request,
+            "lobby": lobby_payload,
+            "active_view": active_view,
+        },
     )
 
 
@@ -97,6 +104,12 @@ async def _build_lobby_payload() -> Dict:
             "displayName": "Pilota Zenith",
             "level": 58,
             "xpProgress": 0.54,
+            "title": "Operatore di Apex Squadron",
+            "loadout": {
+                "primary": "Fucile a impulsi VX-9",
+                "secondary": "Pistola plasma Viper",
+                "gadget": "Drone di ricognizione",
+            },
         },
         "currencies": {
             "credits": 1250,
@@ -106,11 +119,46 @@ async def _build_lobby_payload() -> Dict:
         "battlePass": {
             "level": 27,
             "progress": 0.54,
+            "rewards": [
+                {"tier": 28, "reward": "Skin arma - Aurora"},
+                {"tier": 29, "reward": "Spray - Onda Quantum"},
+                {"tier": 30, "reward": "Emote - Drop dinamico"},
+            ],
         },
         "activity": snapshot,
         "dailyHighlight": {
             "mode": random.choice(["Assalto Orbitale", "Corsa ai Dati", "Dominio"]),
             "map": random.choice(["Nova Prime", "Cittadella Sospesa", "Canyon Elettrico"]),
+        },
+        "news": {
+            "headline": "Operazione Nebula in arrivo",
+            "blurb": "Nuovi obiettivi dinamici e ricompense a tempo limitato ogni settimana.",
+        },
+        "locker": {
+            "outfit": "Sentinella Prisma",
+            "backbling": "Nucleo Orbitale",
+            "pickaxe": "Falce Ionica",
+            "glider": "Ala Luminosa",
+            "wrap": "Circuito Neon",
+            "emotes": ["Scia Nova", "Cadenza Zero"],
+        },
+        "shop": {
+            "featured": [
+                {"name": "Bundle Eclissi", "price": 2400, "rarity": "Leggendario"},
+                {"name": "Sentinella Prisma", "price": 2000, "rarity": "Epico"},
+            ],
+            "daily": [
+                {"name": "Scia Holo", "price": 800, "rarity": "Raro"},
+                {"name": "Emote Drift", "price": 500, "rarity": "Non Comune"},
+                {"name": "Avvolgimento Ion", "price": 300, "rarity": "Comune"},
+            ],
+        },
+        "profile": {
+            "matchesPlayed": 326,
+            "wins": 47,
+            "winRate": 14.4,
+            "kdr": 3.2,
+            "timePlayedMinutes": 5420,
         },
     }
 

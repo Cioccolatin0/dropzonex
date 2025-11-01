@@ -6,7 +6,7 @@
     <title>Dropzone X</title>
     <link rel="stylesheet" href="/static/css/app.css" />
   </head>
-  <body>
+  <body data-active-view="{{ active_view or 'play' }}">
     <div class="app-shell">
       <header class="topbar">
         <div class="brand">
@@ -14,11 +14,11 @@
           <span class="brand-title">Dropzone X</span>
         </div>
         <nav class="primary-nav">
-          <button class="nav-btn" data-view="play">Gioca</button>
-          <button class="nav-btn" data-view="pass">Battle Pass</button>
-          <button class="nav-btn" data-view="locker">Armadietto</button>
-          <button class="nav-btn" data-view="shop">Negozio</button>
-          <button class="nav-btn" data-view="profile">Profilo</button>
+          <a class="nav-btn {% if active_view == 'play' %}active{% endif %}" data-view="play" href="/?view=play">Gioca</a>
+          <a class="nav-btn {% if active_view == 'pass' %}active{% endif %}" data-view="pass" href="/?view=pass">Battle Pass</a>
+          <a class="nav-btn {% if active_view == 'locker' %}active{% endif %}" data-view="locker" href="/?view=locker">Armadietto</a>
+          <a class="nav-btn {% if active_view == 'shop' %}active{% endif %}" data-view="shop" href="/?view=shop">Negozio</a>
+          <a class="nav-btn {% if active_view == 'profile' %}active{% endif %}" data-view="profile" href="/?view=profile">Profilo</a>
         </nav>
         <div class="currencies">
           <span class="currency">⛁ <strong id="currency-credits">{{ lobby.currencies.credits }}</strong></span>
@@ -28,67 +28,190 @@
       </header>
 
       <main class="layout">
-        <section class="hero-card">
-          <div class="hero-portrait">
-            <div class="hero-thumbnail"></div>
-          </div>
-          <div class="hero-info">
-            <h1 id="hero-name">{{ lobby.hero.displayName }}</h1>
-            <p class="level">Livello {{ lobby.hero.level }}</p>
-            <div class="xp-bar">
-              <div class="xp-fill" style="width: {{ lobby.hero.xpProgress * 100 }}%"></div>
-            </div>
-            <p class="mode-highlight">Modalità consigliata: <strong id="highlight-mode">{{ lobby.dailyHighlight.mode }}</strong> · <span id="highlight-map">{{ lobby.dailyHighlight.map }}</span></p>
-            <div class="matchmaking-card">
-              <p id="queue-status">Pronto a lanciarti.</p>
-              <button id="play-button" class="cta">Avvia Matchmaking</button>
-              <button id="cancel-button" class="ghost" hidden>Annulla</button>
+        <section class="view view-play" data-view-section="play" {% if active_view != 'play' %}hidden{% endif %}>
+          <div class="play-grid">
+            <section class="hero-card">
+              <div class="hero-portrait">
+                <div class="hero-thumbnail"></div>
+              </div>
+              <div class="hero-info">
+                <h1 id="hero-name">{{ lobby.hero.displayName }}</h1>
+                <p class="title" id="hero-title">{{ lobby.hero.title }}</p>
+                <p class="level">Livello <span id="hero-level">{{ lobby.hero.level }}</span></p>
+                <div class="xp-bar">
+                  <div id="xp-fill" class="xp-fill" style="width: {{ lobby.hero.xpProgress * 100 }}%"></div>
+                </div>
+                <div class="loadout-grid">
+                  <div>
+                    <span class="label">Primaria</span>
+                    <strong id="loadout-primary">{{ lobby.hero.loadout.primary }}</strong>
+                  </div>
+                  <div>
+                    <span class="label">Secondaria</span>
+                    <strong id="loadout-secondary">{{ lobby.hero.loadout.secondary }}</strong>
+                  </div>
+                  <div>
+                    <span class="label">Gadget</span>
+                    <strong id="loadout-gadget">{{ lobby.hero.loadout.gadget }}</strong>
+                  </div>
+                </div>
+                <p class="mode-highlight">Modalità consigliata: <strong id="highlight-mode">{{ lobby.dailyHighlight.mode }}</strong> · <span id="highlight-map">{{ lobby.dailyHighlight.map }}</span></p>
+                <div class="matchmaking-card">
+                  <p id="queue-status">Pronto a lanciarti.</p>
+                  <button id="play-button" class="cta">Avvia Matchmaking</button>
+                  <button id="cancel-button" class="ghost" hidden>Annulla</button>
+                </div>
+              </div>
+            </section>
+            <div class="play-sidebar">
+              <section class="activity-panel">
+                <h2>Stato rete</h2>
+                <ul class="activity-grid">
+                  <li>
+                    <span class="label">Giocatori online</span>
+                    <strong id="stat-online">{{ lobby.activity.onlinePlayers }}</strong>
+                  </li>
+                  <li>
+                    <span class="label">In ricerca</span>
+                    <strong id="stat-searching">{{ lobby.activity.searching }}</strong>
+                  </li>
+                  <li>
+                    <span class="label">Match attivi</span>
+                    <strong id="stat-active">{{ lobby.activity.activeMatches }}</strong>
+                  </li>
+                </ul>
+                <h2>Squadra</h2>
+                <div id="squad" class="squad-list">
+                  <p>Nessuna sessione attiva.</p>
+                </div>
+              </section>
+              <section class="panel news-panel">
+                <h2>Notizie</h2>
+                <h3 id="news-headline">{{ lobby.news.headline }}</h3>
+                <p id="news-blurb">{{ lobby.news.blurb }}</p>
+              </section>
             </div>
           </div>
         </section>
 
-        <section class="activity-panel">
-          <h2>Stato Rete</h2>
-          <ul class="activity-grid">
+        <section class="panel pass-panel" data-view-section="pass" {% if active_view != 'pass' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Battle Pass</h2>
+              <p>Livello <strong id="pass-level">{{ lobby.battlePass.level }}</strong></p>
+            </div>
+            <div class="pass-progress">
+              <div class="pass-progress-bar">
+                <span id="pass-progress" style="width: {{ lobby.battlePass.progress * 100 }}%"></span>
+              </div>
+              <span class="pass-progress-label" id="pass-progress-label">{{ (lobby.battlePass.progress * 100)|round(0) }}% completato</span>
+            </div>
+          </header>
+          <p class="panel-subtitle">Completa missioni giornaliere per ottenere XP aggiuntiva e sbloccare la prossima ricompensa.</p>
+          <ul id="pass-track" class="pass-track">
+            {% for reward in lobby.battlePass.rewards %}
             <li>
-              <span class="label">Giocatori online</span>
-              <strong id="stat-online">{{ lobby.activity.onlinePlayers }}</strong>
+              <span class="label">Tier {{ reward.tier }}</span>
+              <strong>{{ reward.reward }}</strong>
+            </li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        <section class="panel locker-panel" data-view-section="locker" {% if active_view != 'locker' %}hidden{% endif %}>
+          <h2>Armadietto</h2>
+          <p class="panel-subtitle">Personalizza l'aspetto del tuo operatore.</p>
+          <div class="locker-grid">
+            <div>
+              <span class="label">Skin</span>
+              <strong id="locker-outfit">{{ lobby.locker.outfit }}</strong>
+            </div>
+            <div>
+              <span class="label">Zaino</span>
+              <strong id="locker-backbling">{{ lobby.locker.backbling }}</strong>
+            </div>
+            <div>
+              <span class="label">Piccone</span>
+              <strong id="locker-pickaxe">{{ lobby.locker.pickaxe }}</strong>
+            </div>
+            <div>
+              <span class="label">Deltaplano</span>
+              <strong id="locker-glider">{{ lobby.locker.glider }}</strong>
+            </div>
+            <div>
+              <span class="label">Fascetta arma</span>
+              <strong id="locker-wrap">{{ lobby.locker.wrap }}</strong>
+            </div>
+          </div>
+          <div class="locker-emotes">
+            <h3>Emote</h3>
+            <ul id="locker-emotes">
+              {% for emote in lobby.locker.emotes %}
+              <li>{{ emote }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </section>
+
+        <section class="panel shop-panel" data-view-section="shop" {% if active_view != 'shop' %}hidden{% endif %}>
+          <h2>Negozio</h2>
+          <div class="shop-columns">
+            <div>
+              <h3>In evidenza</h3>
+              <ul id="shop-featured" class="shop-list">
+                {% for item in lobby.shop.featured %}
+                <li>
+                  <div>
+                    <strong>{{ item.name }}</strong>
+                    <span class="rarity">{{ item.rarity }}</span>
+                  </div>
+                  <span class="price">{{ item.price }} ⛁</span>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            <div>
+              <h3>Oggetti giornalieri</h3>
+              <ul id="shop-daily" class="shop-list">
+                {% for item in lobby.shop.daily %}
+                <li>
+                  <div>
+                    <strong>{{ item.name }}</strong>
+                    <span class="rarity">{{ item.rarity }}</span>
+                  </div>
+                  <span class="price">{{ item.price }} ⛁</span>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel profile-panel" data-view-section="profile" {% if active_view != 'profile' %}hidden{% endif %}>
+          <h2>Profilo</h2>
+          <p class="panel-subtitle">Monitoraggio prestazioni Dropzone X.</p>
+          <ul class="profile-stats">
+            <li>
+              <span class="label">Partite giocate</span>
+              <strong id="profile-matches">{{ lobby.profile.matchesPlayed }}</strong>
             </li>
             <li>
-              <span class="label">In ricerca</span>
-              <strong id="stat-searching">{{ lobby.activity.searching }}</strong>
+              <span class="label">Vittorie</span>
+              <strong id="profile-wins">{{ lobby.profile.wins }}</strong>
             </li>
             <li>
-              <span class="label">Match attivi</span>
-              <strong id="stat-active">{{ lobby.activity.activeMatches }}</strong>
+              <span class="label">Win Rate</span>
+              <strong id="profile-winrate">{{ lobby.profile.winRate }}%</strong>
+            </li>
+            <li>
+              <span class="label">Rapporto K/O</span>
+              <strong id="profile-kdr">{{ lobby.profile.kdr }}</strong>
+            </li>
+            <li>
+              <span class="label">Tempo di gioco</span>
+              <strong id="profile-time">{{ (lobby.profile.timePlayedMinutes / 60)|round(1) }} h</strong>
             </li>
           </ul>
-
-          <h2>Squadra</h2>
-          <div id="squad" class="squad-list">
-            <p>Nessuna sessione attiva.</p>
-          </div>
-        </section>
-
-        <section class="panel" id="panel-pass">
-          <h2>Battle Pass</h2>
-          <p>Livello {{ lobby.battlePass.level }} · Progressione {{ (lobby.battlePass.progress * 100)|round(0) }}%</p>
-          <p>Completa missioni giornaliere per sbloccare ricompense esclusive.</p>
-        </section>
-
-        <section class="panel" id="panel-locker" hidden>
-          <h2>Armadietto</h2>
-          <p>Personalizza il tuo equipaggiamento cosmetico.</p>
-        </section>
-
-        <section class="panel" id="panel-shop" hidden>
-          <h2>Negozio</h2>
-          <p>Offerte giornaliere disponibili più tardi.</p>
-        </section>
-
-        <section class="panel" id="panel-profile" hidden>
-          <h2>Profilo</h2>
-          <p>Statistiche e progressi globali.</p>
         </section>
       </main>
 
