@@ -240,8 +240,14 @@ const heroData = createCharacter();
 const hero = heroData.group;
 world.add(hero);
 
+const HERO_SPEED = 6;
+const HERO_JUMP_STRENGTH = 8;
+const HERO_GRAVITY = 20;
+
 const heroVelocity = new THREE.Vector3();
+const heroDisplacement = new THREE.Vector3();
 const heroDirection = new THREE.Vector3();
+let heroVerticalSpeed = 0;
 
 const targetPosition = new THREE.Vector3();
 
@@ -474,11 +480,26 @@ const fireButton = document.getElementById('fire-btn');
 const buildButton = document.getElementById('build-btn');
 
 if (device.isMobile) {
-  jumpButton.addEventListener('touchstart', () => (movement.jumping = true));
-  jumpButton.addEventListener('touchend', () => (movement.jumping = false));
-  fireButton.addEventListener('touchstart', () => (isShooting = true));
-  fireButton.addEventListener('touchend', () => (isShooting = false));
-  buildButton.addEventListener('touchstart', () => buildStructure('ramp'));
+  jumpButton.addEventListener('touchstart', (event) => {
+    event.preventDefault();
+    movement.jumping = true;
+  });
+  jumpButton.addEventListener('touchend', (event) => {
+    event.preventDefault();
+    movement.jumping = false;
+  });
+  fireButton.addEventListener('touchstart', (event) => {
+    event.preventDefault();
+    isShooting = true;
+  });
+  fireButton.addEventListener('touchend', (event) => {
+    event.preventDefault();
+    isShooting = false;
+  });
+  buildButton.addEventListener('touchstart', (event) => {
+    event.preventDefault();
+    buildStructure('ramp');
+  });
 }
 
 const joystick = document.getElementById('joystick');
@@ -487,6 +508,8 @@ let joystickActive = false;
 const joystickVector = new THREE.Vector2();
 
 function updateJoystick(event) {
+  if (!event.touches || event.touches.length === 0) return;
+
   const rect = joystick.getBoundingClientRect();
   const x = event.touches[0].clientX - rect.left;
   const y = event.touches[0].clientY - rect.top;
@@ -497,31 +520,38 @@ function updateJoystick(event) {
   const distance = Math.min(Math.hypot(dx, dy), maxDistance);
   const angle = Math.atan2(dy, dx);
 
-  joystickThumb.style.transform = `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px)`;
+  const offsetX = Math.cos(angle) * distance;
+  const offsetY = Math.sin(angle) * distance;
+  joystickThumb.style.transform = `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px))`;
 
   joystickVector.set(Math.cos(angle) * (distance / maxDistance), Math.sin(angle) * (distance / maxDistance));
 }
 
 if (device.isMobile) {
+  const resetJoystick = (event) => {
+    if (event) event.preventDefault();
+    joystickActive = false;
+    joystickVector.set(0, 0);
+    joystickThumb.style.transform = 'translate(-50%, -50%)';
+  };
+
   joystick.addEventListener('touchstart', (event) => {
+    event.preventDefault();
     joystickActive = true;
     updateJoystick(event);
   });
 
   joystick.addEventListener('touchmove', (event) => {
+    event.preventDefault();
     if (!joystickActive) return;
     updateJoystick(event);
   });
 
-  joystick.addEventListener('touchend', () => {
-    joystickActive = false;
-    joystickVector.set(0, 0);
-    joystickThumb.style.transform = 'translate(-50%, -50%)';
-  });
+  joystick.addEventListener('touchend', resetJoystick);
+  joystick.addEventListener('touchcancel', resetJoystick);
 }
 
 function updateMovement(delta) {
-  const speed = 6;
   heroDirection.set(0, 0, 0);
 
   if (device.isMobile && joystickActive) {
@@ -534,38 +564,42 @@ function updateMovement(delta) {
     if (movement.right) heroDirection.x += 1;
   }
 
-  if (heroDirection.lengthSq() > 0) {
+  const isMoving = heroDirection.lengthSq() > 0;
+
+  if (isMoving) {
     heroDirection.normalize();
     const angle = Math.atan2(heroDirection.x, heroDirection.z);
     hero.rotation.y = angle;
-    heroVelocity.x = heroDirection.x * speed * delta;
-    heroVelocity.z = heroDirection.z * speed * delta;
+    heroVelocity.x = heroDirection.x * HERO_SPEED;
+    heroVelocity.z = heroDirection.z * HERO_SPEED;
   } else {
-    heroVelocity.set(0, heroVelocity.y, 0);
+    heroVelocity.set(0, 0, 0);
   }
 
-  hero.position.add(heroVelocity);
+  heroDisplacement.copy(heroVelocity).multiplyScalar(delta);
+  hero.position.add(heroDisplacement);
   hero.position.x = THREE.MathUtils.clamp(hero.position.x, -60, 60);
   hero.position.z = THREE.MathUtils.clamp(hero.position.z, -60, 60);
 
-  const amplitude = heroDirection.lengthSq() > 0 ? 0.3 : 0;
-  const legSwing = Math.sin(clock.elapsedTime * (heroDirection.lengthSq() > 0 ? 12 : 0)) * amplitude;
+  const amplitude = isMoving ? 0.3 : 0;
+  const legSwingSpeed = isMoving ? 12 : 0;
+  const legSwing = Math.sin(clock.elapsedTime * legSwingSpeed) * amplitude;
   heroData.limbs.leftLeg.rotation.x = legSwing;
   heroData.limbs.rightLeg.rotation.x = -legSwing;
   heroData.limbs.leftArm.rotation.x = -legSwing * 0.8;
   heroData.limbs.rightArm.rotation.x = legSwing * 0.8;
 
-  if (movement.jumping && hero.position.y <= 0.01) {
-    heroVelocity.y = 6 * delta;
+  if (movement.jumping && hero.position.y <= 0.05) {
+    heroVerticalSpeed = HERO_JUMP_STRENGTH;
     movement.jumping = false;
   }
 
-  heroVelocity.y -= 9.8 * delta;
-  hero.position.y += heroVelocity.y;
+  heroVerticalSpeed -= HERO_GRAVITY * delta;
+  hero.position.y += heroVerticalSpeed * delta;
 
   if (hero.position.y < 0) {
     hero.position.y = 0;
-    heroVelocity.y = 0;
+    heroVerticalSpeed = 0;
   }
 }
 
