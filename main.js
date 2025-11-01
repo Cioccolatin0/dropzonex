@@ -42,6 +42,7 @@ let queueing = false;
 let sessionId = null;
 let queuePollHandle = null;
 let currentMatch = null;
+let offlineMode = false;
 
 let activeHomeSection = 'play';
 
@@ -130,6 +131,7 @@ async function fetchLobbyMeta() {
       heroName: data.hero?.displayName,
     };
     updateMetaUI();
+    offlineMode = false;
     lobbyReady = true;
     updateQueueStatus(
       'Sei pronto per la missione?',
@@ -141,19 +143,49 @@ async function fetchLobbyMeta() {
     );
     maybeEnableStartButton();
   } catch (error) {
-    updateQueueStatus(
-      'Connessione al backend fallita',
-      [],
-      error instanceof Error ? error.message : 'Errore inatteso.'
-    );
+    activateOfflineMode(error instanceof Error ? error.message : 'Errore inatteso.');
   }
 }
 
-function maybeEnableStartButton() {
-  if (assetsReady && lobbyReady) {
+function activateOfflineMode(reason = '') {
+  offlineMode = true;
+  lobbyReady = true;
+  queueing = false;
+  sessionId = null;
+  clearQueuePolling();
+  metaProgress = {
+    credits: 1250,
+    flux: 460,
+    tokens: 12,
+    passLevel: 27,
+    passProgress: 0.54,
+    mode: 'Simulazione addestramento',
+    heroName: 'Pilota Zenith',
+  };
+  updateMetaUI();
+  const detailMessage = reason
+    ? `Modalità offline attiva. Motivo: ${reason}`
+    : 'Modalità offline attiva.';
+  updateQueueStatus(
+    'Addestramento contro bot disponibile',
+    [
+      'Piloti reali non disponibili',
+      'I compagni di squadra saranno unità IA',
+    ],
+    `${detailMessage} Premi “Gioca offline” per iniziare.`
+  );
+  if (assetsReady) {
     startButton.disabled = false;
-    startButton.textContent = 'Trova Match';
   }
+  startButton.textContent = assetsReady ? 'Gioca offline' : 'Caricamento asset...';
+}
+
+function maybeEnableStartButton() {
+  if (!assetsReady || !lobbyReady) {
+    return;
+  }
+  startButton.disabled = false;
+  startButton.textContent = offlineMode ? 'Gioca offline' : 'Trova Match';
 }
 
 function clearQueuePolling() {
@@ -386,16 +418,63 @@ function startGame() {
 }
 
 startButton.addEventListener('click', () => {
-  if (assetsReady && lobbyReady && !queueing) {
+  if (!assetsReady || !lobbyReady || queueing) {
+    return;
+  }
+  if (offlineMode) {
+    startOfflineMatch();
+  } else {
     requestMatch();
   }
 });
 
 document.addEventListener('keydown', (event) => {
   if (event.code === 'Enter' && assetsReady && lobbyReady && !gameStarted && !queueing) {
-    requestMatch();
+    if (offlineMode) {
+      startOfflineMatch();
+    } else {
+      requestMatch();
+    }
   }
 });
+
+function startOfflineMatch() {
+  if (gameStarted) {
+    return;
+  }
+  queueing = false;
+  sessionId = null;
+  const maps = ['Nova Prime', 'Cittadella Sospesa', 'Canyon Elettrico'];
+  const modes = ['Assalto Orbitale (IA)', 'Difesa Nexus (IA)', 'Caccia Quantica (IA)'];
+  const map = maps[Math.floor(Math.random() * maps.length)];
+  const mode = modes[Math.floor(Math.random() * modes.length)];
+  const heroName = metaProgress.heroName ?? 'Pilota Zenith';
+  const squad = [
+    { displayName: heroName, isBot: false },
+    { displayName: 'Unità Omega', isBot: true },
+    { displayName: 'Unità Sigma', isBot: true },
+    { displayName: 'Unità Lambda', isBot: true },
+  ];
+  currentMatch = {
+    matchId: `offline-${Date.now()}`,
+    map,
+    mode,
+    squad,
+  };
+  metaProgress.mode = `${mode} — ${map}`;
+  updateMetaUI();
+  renderRoster(squad);
+  updateQueueStatus(
+    'Simulazione pronta',
+    squad.map((member) => `${member.displayName}${member.isBot ? ' (BOT)' : ''}`),
+    `Stai per affrontare squadre IA su ${map}.`
+  );
+  startButton.disabled = true;
+  startButton.textContent = 'Avvio partita...';
+  window.setTimeout(() => {
+    startGame();
+  }, 600);
+}
 
 const cameraState = {
   azimuth: Math.PI,
