@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dropzone X</title>
     <link rel="stylesheet" href="/static/css/app.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body data-active-view="{{ active_view or 'play' }}">
     <div id="auth-overlay" class="auth-overlay" hidden>
@@ -43,112 +51,162 @@
         </form>
       </div>
     </div>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand">
+    <div class="lobby-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
           <span class="brand-mark">Δ</span>
           <span class="brand-title">Dropzone X</span>
         </div>
-        <nav class="primary-nav">
-          <a class="nav-btn {% if active_view == 'play' %}active{% endif %}" data-view="play" href="/?view=play">Gioca</a>
-          <a class="nav-btn {% if active_view == 'pass' %}active{% endif %}" data-view="pass" href="/?view=pass">Battle Pass</a>
-          <a class="nav-btn {% if active_view == 'locker' %}active{% endif %}" data-view="locker" href="/?view=locker">Armadietto</a>
-          <a class="nav-btn {% if active_view == 'shop' %}active{% endif %}" data-view="shop" href="/?view=shop">Negozio</a>
-          <a class="nav-btn {% if active_view == 'stats' %}active{% endif %}" data-view="stats" href="/?view=stats">Statistiche</a>
-          <a class="nav-btn {% if active_view == 'friends' %}active{% endif %}" data-view="friends" href="/?view=friends">Amici</a>
-          <a class="nav-btn {% if active_view == 'settings' %}active{% endif %}" data-view="settings" href="/?view=settings">Impostazioni</a>
+        <nav class="sidebar-menu" aria-label="Navigazione principale">
+          <button class="nav-btn {% if active_view == 'play' %}active{% endif %}" type="button" data-view="play">Gioca</button>
+          <button class="nav-btn {% if active_view == 'pass' %}active{% endif %}" type="button" data-view="pass">Pass Battaglia</button>
+          <button class="nav-btn {% if active_view == 'locker' %}active{% endif %}" type="button" data-view="locker">Armadietto</button>
+          <button class="nav-btn {% if active_view == 'shop' %}active{% endif %}" type="button" data-view="shop">Negozio</button>
+          <button class="nav-btn {% if active_view == 'stats' %}active{% endif %}" type="button" data-view="stats">Statistiche</button>
+          <button class="nav-btn {% if active_view == 'friends' %}active{% endif %}" type="button" data-view="friends">Amici</button>
+          <button class="nav-btn {% if active_view == 'settings' %}active{% endif %}" type="button" data-view="settings">Impostazioni</button>
         </nav>
-        <div class="currencies">
-          <span class="currency">⛁ <strong id="currency-credits">{{ lobby.currencies.credits }}</strong></span>
-          <span class="currency">⚡ <strong id="currency-flux">{{ lobby.currencies.flux }}</strong></span>
-          <span class="currency">◇ <strong id="currency-tokens">{{ lobby.currencies.tokens }}</strong></span>
+        <div class="sidebar-foot">
+          <p class="sidebar-news" id="news-headline">{{ lobby.news.headline }}</p>
+          <p class="sidebar-news-detail" id="news-blurb">{{ lobby.news.blurb }}</p>
         </div>
-      </header>
+      </aside>
 
-      <main class="layout">
-        <section class="view view-play" data-view-section="play" {% if active_view != 'play' %}hidden{% endif %}>
-          <div class="play-grid">
-            <section class="hero-card">
-              <div class="hero-portrait">
-                <div class="hero-thumbnail"></div>
+      <div class="main-stage">
+        <header class="player-bar">
+          <div class="player-ident">
+            <div class="player-nameplate">
+              <h1 id="player-name">{{ lobby.hero.displayName }}</h1>
+              <p id="hero-title">{{ lobby.hero.title }}</p>
+            </div>
+            <div class="player-level">
+              <span class="label">Livello</span>
+              <span id="player-level" class="value">{{ lobby.hero.level }}</span>
+            </div>
+          </div>
+          <div class="player-currencies" aria-label="Valute disponibili">
+            <span class="currency">⛁ <strong id="currency-credits">{{ lobby.currencies.credits }}</strong></span>
+            <span class="currency">⚡ <strong id="currency-flux">{{ lobby.currencies.flux }}</strong></span>
+            <span class="currency">◇ <strong id="currency-tokens">{{ lobby.currencies.tokens }}</strong></span>
+          </div>
+          <div class="player-profile" aria-label="Profilo giocatore">
+            <img id="player-avatar" src="{{ lobby.hero.cosmetics.equippedOutfit.thumbnailUrl }}" alt="Avatar giocatore" />
+          </div>
+        </header>
+
+        <div class="stage-grid">
+          <section class="hero-stage" aria-label="Operatore equipaggiato">
+            <div class="hero-canvas">
+              <canvas id="hero-canvas" role="img" aria-label="Anteprima operatore Dropzone X"></canvas>
+              <div class="hero-base">
+                <span class="base-shadow"></span>
+                <span class="base-ring"></span>
               </div>
-              <div class="hero-info">
-                <h1 id="hero-name">{{ lobby.hero.displayName }}</h1>
-                <p class="title" id="hero-title">{{ lobby.hero.title }}</p>
-                <p class="level">Livello <span id="hero-level">{{ lobby.hero.level }}</span></p>
-                <div class="xp-bar">
-                  <div id="xp-fill" class="xp-fill" style="width: {{ lobby.hero.xpProgress * 100 }}%"></div>
+            </div>
+            <div class="hero-details">
+              <div class="hero-header">
+                <div class="hero-identity">
+                  <h2>{{ lobby.hero.displayName }}</h2>
+                  <p class="hero-tagline">{{ lobby.hero.title }}</p>
                 </div>
-                <div class="loadout-grid">
-                  <div>
+                <span class="mode-highlight">Operazione consigliata: <strong id="highlight-mode">{{ lobby.dailyHighlight.mode }}</strong> · <span id="highlight-map">{{ lobby.dailyHighlight.map }}</span></span>
+              </div>
+              <div class="hero-metrics">
+                <div class="xp-meter">
+                  <span class="label">Pass Battaglia</span>
+                  <div class="xp-bar">
+                    <div id="xp-fill" class="xp-fill" style="width: {{ lobby.hero.xpProgress * 100 }}%"></div>
+                  </div>
+                </div>
+                <ul class="loadout-grid">
+                  <li>
                     <span class="label">Primaria</span>
                     <strong id="loadout-primary">{{ lobby.hero.loadout.primary }}</strong>
-                  </div>
-                  <div>
+                  </li>
+                  <li>
                     <span class="label">Secondaria</span>
                     <strong id="loadout-secondary">{{ lobby.hero.loadout.secondary }}</strong>
-                  </div>
-                  <div>
+                  </li>
+                  <li>
                     <span class="label">Gadget</span>
                     <strong id="loadout-gadget">{{ lobby.hero.loadout.gadget }}</strong>
-                  </div>
+                  </li>
+                </ul>
+              </div>
+              <section class="network-overview" aria-label="Stato matchmaking">
+                <div class="stat">
+                  <span class="label">Giocatori online</span>
+                  <strong id="stat-online">{{ lobby.activity.onlinePlayers }}</strong>
                 </div>
-                <p class="mode-highlight">Modalità consigliata: <strong id="highlight-mode">{{ lobby.dailyHighlight.mode }}</strong> · <span id="highlight-map">{{ lobby.dailyHighlight.map }}</span></p>
-                <div class="matchmaking-card">
-                  <p id="queue-status">Pronto a lanciarti.</p>
-                  <button id="play-button" class="cta">Avvia Matchmaking</button>
+                <div class="stat">
+                  <span class="label">In ricerca</span>
+                  <strong id="stat-searching">{{ lobby.activity.searching }}</strong>
+                </div>
+                <div class="stat">
+                  <span class="label">Match attivi</span>
+                  <strong id="stat-active">{{ lobby.activity.activeMatches }}</strong>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view-stack">
+            <article class="view-panel view-play" data-view-section="play" {% if active_view != 'play' %}hidden{% endif %}>
+              <header class="panel-header">
+                <div>
+                  <h2>Gioca</h2>
+                  <p>Scegli la modalità e lanciati nella Dropzone.</p>
+                </div>
+              </header>
+              <div class="mode-selector" role="radiogroup" aria-label="Selezione modalità">
+                <button type="button" class="mode-card" data-match-mode="solo">
+                  <span class="mode-name">Solo</span>
+                  <span class="mode-detail">Affronta 99 avversari da solo.</span>
+                </button>
+                <button type="button" class="mode-card" data-match-mode="duo">
+                  <span class="mode-name">Duo</span>
+                  <span class="mode-detail">Forma una coppia coordinata.</span>
+                </button>
+                <button type="button" class="mode-card" data-match-mode="squad">
+                  <span class="mode-name">Squad</span>
+                  <span class="mode-detail">Squadra completa da quattro operatori.</span>
+                </button>
+              </div>
+              <div class="queue-panel">
+                <p id="queue-status">Seleziona una modalità per iniziare.</p>
+                <div class="queue-actions">
+                  <button id="play-button" class="cta" disabled>Gioca</button>
                   <button id="cancel-button" class="ghost" hidden>Annulla</button>
                 </div>
               </div>
-            </section>
-            <div class="play-sidebar">
-              <section class="activity-panel">
-                <h2>Stato rete</h2>
-                <ul class="activity-grid">
-                  <li>
-                    <span class="label">Giocatori online</span>
-                    <strong id="stat-online">{{ lobby.activity.onlinePlayers }}</strong>
-                  </li>
-                  <li>
-                    <span class="label">In ricerca</span>
-                    <strong id="stat-searching">{{ lobby.activity.searching }}</strong>
-                  </li>
-                  <li>
-                    <span class="label">Match attivi</span>
-                    <strong id="stat-active">{{ lobby.activity.activeMatches }}</strong>
-                  </li>
-                </ul>
-                <h2>Squadra</h2>
+              <section class="squad-panel" aria-live="polite">
+                <header>
+                  <h3>Lobby</h3>
+                  <p>Visualizza i compagni prima del lancio.</p>
+                </header>
                 <div id="squad" class="squad-list">
-                  <p>Nessuna sessione attiva.</p>
+                  <p>In attesa di comporre la squadra...</p>
                 </div>
               </section>
-              <section class="panel news-panel">
-                <h2>Notizie</h2>
-                <h3 id="news-headline">{{ lobby.news.headline }}</h3>
-                <p id="news-blurb">{{ lobby.news.blurb }}</p>
-              </section>
-            </div>
-          </div>
-        </section>
+            </article>
 
-        <section class="panel pass-panel" data-view-section="pass" {% if active_view != 'pass' %}hidden{% endif %}>
-          <header class="panel-header">
-            <div>
-              <h2>Battle Pass</h2>
-              <p>Livello <strong id="pass-level">{{ lobby.battlePass.level }}</strong></p>
-            </div>
-            <div class="pass-progress">
-              <div class="pass-progress-bar">
-                <span id="pass-progress" style="width: {{ lobby.battlePass.progress * 100 }}%"></span>
-              </div>
-              <span class="pass-progress-label" id="pass-progress-label">{{ (lobby.battlePass.progress * 100)|round(0) }}% completato</span>
-            </div>
-          </header>
-          <div class="pass-layout">
-            <div class="pass-track-wrapper">
-              <p class="panel-subtitle">Scorri le 50 soglie e riscatta ricompense estetiche e valute premium.</p>
-              <ul id="pass-track" class="pass-track" aria-label="Ricompense Battle Pass">
+            <article class="view-panel pass-panel" data-view-section="pass" {% if active_view != 'pass' %}hidden{% endif %}>
+              <header class="panel-header">
+                <div>
+                  <h2>Battle Pass</h2>
+                  <p>Livello <strong id="pass-level">{{ lobby.battlePass.level }}</strong></p>
+                </div>
+                <div class="pass-progress">
+                  <div class="pass-progress-bar">
+                    <span id="pass-progress" style="width: {{ lobby.battlePass.progress * 100 }}%"></span>
+                  </div>
+                  <span class="pass-progress-label" id="pass-progress-label">{{ (lobby.battlePass.progress * 100)|round(0) }}% completato</span>
+                </div>
+              </header>
+              <div class="pass-layout">
+                <div class="pass-track-wrapper">
+                  <p class="panel-subtitle">Scorri le 50 soglie e riscatta ricompense estetiche e valute premium.</p>
+                  <ul id="pass-track" class="pass-track" aria-label="Ricompense Battle Pass">
                 {% for tier in lobby.battlePass.tiers %}
                 <li class="pass-card {% if tier.claimed %}claimed{% elif not tier.unlocked %}locked{% endif %}" data-tier-id="{{ tier.id }}">
                   <button type="button">
@@ -164,10 +222,10 @@
                 </li>
                 {% endfor %}
               </ul>
-            </div>
-            <aside class="pass-preview" aria-live="polite">
-              <div class="preview-card">
-                <figure id="pass-preview-media" class="preview-media">
+                </div>
+                <aside class="pass-preview" aria-live="polite">
+                  <div class="preview-card">
+                    <figure id="pass-preview-media" class="preview-media">
                   {% set first_tier = lobby.battlePass.tiers[0] if lobby.battlePass.tiers else None %}
                   {% if first_tier %}
                   <img id="pass-preview-image" src="{{ first_tier.thumbnailUrl }}" alt="Anteprima ricompensa" />
@@ -201,13 +259,17 @@
                   </button>
                 </div>
               </div>
-            </aside>
-          </div>
-        </section>
+                </aside>
+              </div>
+            </article>
 
-        <section class="panel locker-panel" data-view-section="locker" {% if active_view != 'locker' %}hidden{% endif %}>
-          <h2>Armadietto</h2>
-          <p class="panel-subtitle">Personalizza l'aspetto del tuo operatore con skin, armi e animazioni dedicate.</p>
+        <article class="view-panel locker-panel" data-view-section="locker" {% if active_view != 'locker' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Armadietto</h2>
+              <p>Personalizza l'aspetto del tuo operatore con skin, armi e animazioni dedicate.</p>
+            </div>
+          </header>
           <div class="locker-layout">
             <aside class="locker-summary">
               <article class="locker-card">
@@ -239,7 +301,7 @@
                 {% set equipped_animation = lobby.cosmetics.animationSets | selectattr('id', 'equalto', lobby.cosmetics.equippedOutfit.animationSetId) | list | first %}
                 <div class="locker-card-body">
                   <span class="label">Set animazioni</span>
-                  <strong id="animation-name">{{ equipped_animation.name if equipped_animation else 'N/D' }}</strong>
+                  <strong id="animation-name">{{ equipped_animation.name if equipped_animation else 'Nessun set assegnato' }}</strong>
                   <p id="animation-description">{{ equipped_animation.description if equipped_animation else 'Configura un set animazioni per applicare blending dinamico in partita.' }}</p>
                 </div>
               </article>
@@ -333,9 +395,9 @@
               </section>
             </div>
           </div>
-        </section>
+        </article>
 
-        <section class="panel shop-panel" data-view-section="shop" {% if active_view != 'shop' %}hidden{% endif %}>
+        <article class="view-panel shop-panel" data-view-section="shop" {% if active_view != 'shop' %}hidden{% endif %}>
           <header class="panel-header">
             <div>
               <h2>Negozio</h2>
@@ -408,18 +470,27 @@
                       <dd id="shop-preview-owned">{% if first_item %}{% if first_item.owned %}Sì{% else %}No{% endif %}{% else %}-{% endif %}</dd>
                     </div>
                   </dl>
-                  <button id="shop-buy-button" class="cta" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
-                    {% if first_item %}{% if first_item.owned %}Già acquistato{% else %}Acquista ora{% endif %}{% else %}Seleziona un oggetto{% endif %}
-                  </button>
+                  <div class="shop-preview-actions">
+                    <button id="shop-buy-button" class="cta" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
+                      {% if first_item %}{% if first_item.owned %}Già acquistato{% else %}Acquista{% endif %}{% else %}Seleziona un oggetto{% endif %}
+                    </button>
+                    <button id="shop-gift-button" class="ghost" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
+                      Regala
+                    </button>
+                  </div>
                 </div>
               </div>
             </aside>
           </div>
-        </section>
+        </article>
 
-        <section class="panel profile-panel" data-view-section="stats" {% if active_view != 'stats' %}hidden{% endif %}>
-          <h2>Statistiche</h2>
-          <p class="panel-subtitle">Monitoraggio prestazioni Dropzone X.</p>
+        <article class="view-panel profile-panel" data-view-section="stats" {% if active_view != 'stats' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Statistiche</h2>
+              <p>Monitoraggio prestazioni Dropzone X.</p>
+            </div>
+          </header>
           <ul class="profile-stats">
             <li>
               <span class="label">Partite giocate</span>
@@ -442,54 +513,140 @@
               <strong id="profile-time">{{ (lobby.profile.timePlayedMinutes / 60)|round(1) }} h</strong>
             </li>
           </ul>
-        </section>
+        </article>
 
-        <section class="panel friends-panel" data-view-section="friends" {% if active_view != 'friends' %}hidden{% endif %}>
-          <h2>Amici</h2>
-          <p class="panel-subtitle">Gestisci la tua squadra e invia inviti.</p>
+        <article class="view-panel friends-panel" data-view-section="friends" {% if active_view != 'friends' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Amici</h2>
+              <p>Gestisci la tua squadra e invia inviti.</p>
+            </div>
+          </header>
           <div class="friends-layout">
             <ul id="friend-list" class="friend-list">
               {% for friend in lobby.friends %}
               <li data-username="{{ friend.username }}">
-                <span class="friend-name">{{ friend.username }}</span>
-                <span class="friend-status">{{ friend.status }}</span>
-                <button class="ghost" data-action="remove">Rimuovi</button>
+                <div class="friend-identity">
+                  <span class="status-dot" data-status="{{ friend.status }}"></span>
+                  <span class="friend-name">{{ friend.username }}</span>
+                  <span class="friend-status">{{ friend.status }}</span>
+                </div>
+                <div class="friend-actions">
+                  <button class="ghost" data-action="invite">Invita</button>
+                  <button class="ghost" data-action="gift">Regala</button>
+                  <button class="ghost" data-action="remove">Rimuovi</button>
+                </div>
               </li>
               {% endfor %}
             </ul>
             <form id="friend-form" class="friend-form">
-              <label>
-                Aggiungi amico
+              <label class="field">
+                <span>Ricerca nuovo amico</span>
                 <input type="text" name="username" placeholder="Username Dropzone" required />
               </label>
               <button type="submit" class="cta">Invia richiesta</button>
               <p id="friend-feedback" class="form-feedback" hidden></p>
             </form>
           </div>
-        </section>
+        </article>
 
-        <section class="panel settings-panel" data-view-section="settings" {% if active_view != 'settings' %}hidden{% endif %}>
-          <h2>Impostazioni</h2>
+        <article class="view-panel settings-panel" data-view-section="settings" {% if active_view != 'settings' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Impostazioni</h2>
+              <p>Configura audio, grafica, controlli e accessibilità. Le preferenze vengono salvate automaticamente.</p>
+            </div>
+          </header>
           <div class="settings-grid">
-            <div class="settings-card">
+            <section class="settings-card">
               <h3>Account</h3>
               <p>Email: <strong id="settings-email">{{ lobby.settings.email }}</strong></p>
               <p>Autenticazione a due fattori: <strong id="settings-2fa">{% if lobby.settings.twoFactor %}Attiva{% else %}Disattivata{% endif %}</strong></p>
               <p>Newsletter: <strong id="settings-news">{% if lobby.settings.newsletters %}Iscritto{% else %}Non iscritto{% endif %}</strong></p>
-            </div>
-            <div class="settings-card">
+            </section>
+            <section class="settings-card">
+              <h3>Audio</h3>
+              <label class="setting-row">
+                <span>Volume generale</span>
+                <input type="range" id="setting-audio-master" min="0" max="100" value="80" data-setting-key="audio.master" />
+              </label>
+              <label class="setting-row">
+                <span>Musica</span>
+                <input type="range" id="setting-audio-music" min="0" max="100" value="65" data-setting-key="audio.music" />
+              </label>
+              <label class="setting-row">
+                <span>Effetti</span>
+                <input type="range" id="setting-audio-sfx" min="0" max="100" value="90" data-setting-key="audio.sfx" />
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Grafica</h3>
+              <label class="setting-row">
+                <span>Qualità</span>
+                <select id="setting-graphics-quality" data-setting-key="graphics.quality">
+                  <option value="ultra">Ultra</option>
+                  <option value="alto">Alta</option>
+                  <option value="medio">Media</option>
+                  <option value="basso">Bassa</option>
+                </select>
+              </label>
+              <label class="setting-row toggle">
+                <span>V-Sync</span>
+                <input type="checkbox" id="setting-graphics-vsync" data-setting-key="graphics.vsync" checked />
+              </label>
+              <label class="setting-row toggle">
+                <span>Modalità prestazioni</span>
+                <input type="checkbox" id="setting-graphics-performance" data-setting-key="graphics.performance" />
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Comandi</h3>
+              <label class="setting-row">
+                <span>Sensibilità mouse</span>
+                <input type="range" id="setting-controls-sens" min="0" max="100" value="50" data-setting-key="controls.sensitivity" />
+              </label>
+              <label class="setting-row toggle">
+                <span>Inverti asse Y</span>
+                <input type="checkbox" id="setting-controls-invert" data-setting-key="controls.invertY" />
+              </label>
+              <label class="setting-row toggle">
+                <span>Vibrazione controller</span>
+                <input type="checkbox" id="setting-controls-rumble" data-setting-key="controls.rumble" checked />
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Accessibilità</h3>
+              <label class="setting-row">
+                <span>Modalità daltonismo</span>
+                <select id="setting-accessibility-color" data-setting-key="accessibility.colorMode">
+                  <option value="nessuna">Nessuna</option>
+                  <option value="protanopia">Protanopia</option>
+                  <option value="deuteranopia">Deuteranopia</option>
+                  <option value="tritanopia">Tritanopia</option>
+                </select>
+              </label>
+              <label class="setting-row toggle">
+                <span>Sottotitoli</span>
+                <input type="checkbox" id="setting-accessibility-subtitles" data-setting-key="accessibility.subtitles" checked />
+              </label>
+              <label class="setting-row toggle">
+                <span>Contrasto elevato UI</span>
+                <input type="checkbox" id="setting-accessibility-contrast" data-setting-key="accessibility.contrast" />
+              </label>
+            </section>
+            <section class="settings-card">
               <h3>Sessione</h3>
               <button id="logout-button" class="ghost">Esci dall'account</button>
               <p id="logout-feedback" class="form-feedback" hidden></p>
-            </div>
+            </section>
           </div>
-        </section>
-      </main>
-
-      <footer class="footer">
-        <span>Backend online · matchmaking automatizzato con bot se necessario.</span>
-      </footer>
+        </article>
+      </section>
     </div>
+    <footer class="status-bar">
+      <span>Backend online · matchmaking automatizzato con bot se necessario.</span>
+    </footer>
+  </div>
 
     <script id="initial-data" type="application/json">{{ lobby | tojson }}</script>
     <script src="/static/js/app.js" type="module"></script>

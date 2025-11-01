@@ -256,11 +256,18 @@ async def purchase_shop_item(payload: Dict, current_user: User = Depends(get_cur
 async def queue_player(payload: Dict, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> Dict:
     overview = _apply_cosmetic_state(session, current_user)
     display_name = payload.get("displayName") or current_user.username
-    session_state = await matchmaker.enqueue(
-        user_id=current_user.id,
-        display_name=display_name,
-        cosmetic_profile=cosmetics.player_agent_payload(),
-    )
+    mode = payload.get("mode")
+    if not mode or not isinstance(mode, str):
+        raise HTTPException(status_code=400, detail="Modalità non specificata")
+    try:
+        session_state = await matchmaker.enqueue(
+            user_id=current_user.id,
+            display_name=display_name,
+            cosmetic_profile=cosmetics.player_agent_payload(),
+            mode=mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     data = await matchmaker.serialize_session(session_state.session_id)
     return JSONResponse(data)
 
@@ -411,15 +418,24 @@ async def _build_lobby_payload(session: Session, user: User) -> Dict:
     shop = progression.storefront(session, user)
     stats = _profile_stats(session, user)
     friend_rows = (
-        session.query(User.username, Friendship.status)
+        session.query(User.id, User.username, Friendship.status)
         .join(Friendship, Friendship.friend_id == User.id)
         .filter(Friendship.user_id == user.id)
         .all()
     )
-    friends = [
-        {"username": username, "status": status}
-        for username, status in friend_rows
-    ]
+    presence = await matchmaker.presence_snapshot()
+    friends = []
+    for friend_id, username, status in friend_rows:
+        presence_state = presence.get(friend_id)
+        online = presence_state in {"waiting", "matched", "playing"}
+        friends.append(
+            {
+                "username": username,
+                "status": status,
+                "online": online,
+                "presence": presence_state or "offline",
+            }
+        )
     return {
         "hero": {
             "displayName": user.username,

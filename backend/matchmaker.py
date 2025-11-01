@@ -35,6 +35,12 @@ GAME_MODES = [
     ("Dominio", "Canyon Elettrico"),
 ]
 
+DEFAULT_MODE_RULES: Dict[str, Dict[str, object]] = {
+    "solo": {"label": "Solo", "team_size": 1, "players_per_match": 100},
+    "duo": {"label": "Duo", "team_size": 2, "players_per_match": 100},
+    "squad": {"label": "Squad", "team_size": 4, "players_per_match": 100},
+}
+
 
 @dataclass
 class PlayerSession:
@@ -49,6 +55,10 @@ class PlayerSession:
     last_update: float = field(default_factory=lambda: time.time())
     match_payload: Optional[Dict] = None
     cosmetic_profile: Dict = field(default_factory=dict)
+    mode: str = "squad"
+    mode_label: str = "Squad"
+    team_size: int = 4
+    players_per_match: int = 100
 
 
 @dataclass
@@ -73,13 +83,30 @@ class Matchmaker:
         team_size: int = 3,
         players_per_match: int = 60,
         max_wait_time: float = 15.0,
+        mode_rules: Optional[Dict[str, Dict[str, object]]] = None,
     ) -> None:
         self.cosmetics = cosmetics
-        self.team_size = max(1, team_size)
-        self.players_per_match = max(self.team_size, players_per_match)
+        default_players = max(players_per_match, 96)
+        self._mode_rules: Dict[str, Dict[str, object]] = {}
+        rules_source = mode_rules or DEFAULT_MODE_RULES
+        for code, rule in rules_source.items():
+            label = str(rule.get("label") or code.title())
+            team = int(rule.get("team_size") or (team_size if code == "squad" else 1))
+            capacity = int(rule.get("players_per_match") or default_players)
+            self._mode_rules[code] = {
+                "label": label,
+                "team_size": max(1, team),
+                "players_per_match": max(max(1, team), capacity),
+            }
+        if "squad" not in self._mode_rules:
+            self._mode_rules["squad"] = {
+                "label": "Squad",
+                "team_size": max(1, team_size),
+                "players_per_match": max(max(1, team_size), default_players),
+            }
         self.max_wait_time = max_wait_time
         self._sessions: Dict[str, PlayerSession] = {}
-        self._waiting_order: List[str] = []
+        self._waiting_by_mode: Dict[str, List[str]] = {mode: [] for mode in self._mode_rules}
         self._matches: Dict[str, Match] = {}
         self._lock = asyncio.Lock()
         self._ticker: Optional[asyncio.Task] = None
@@ -96,7 +123,17 @@ class Matchmaker:
                 await self._ticker
             self._ticker = None
 
-    async def enqueue(self, *, user_id: int, display_name: str, cosmetic_profile: Dict) -> PlayerSession:
+    async def enqueue(
+        self,
+        *,
+        user_id: int,
+        display_name: str,
+        cosmetic_profile: Dict,
+        mode: str,
+    ) -> PlayerSession:
+        if mode not in self._mode_rules:
+            raise ValueError("Modalità non supportata")
+        rule = self._mode_rules[mode]
         session = PlayerSession(
             session_id=str(uuid.uuid4()),
             user_id=user_id,
@@ -104,11 +141,16 @@ class Matchmaker:
             display_name=display_name,
             joined_at=time.time(),
             cosmetic_profile=cosmetic_profile,
+            mode=mode,
+            mode_label=str(rule["label"]),
+            team_size=int(rule["team_size"]),
+            players_per_match=int(rule["players_per_match"]),
         )
         async with self._lock:
             self._sessions[session.session_id] = session
-            self._waiting_order.append(session.session_id)
-        await self._notify_sessions(self._waiting_order)
+            queue = self._waiting_by_mode.setdefault(mode, [])
+            queue.append(session.session_id)
+        await self._notify_sessions(self._all_waiting_ids())
         return session
 
     async def register_websocket(self, session_id: str, websocket: WebSocket) -> None:
@@ -172,9 +214,11 @@ class Matchmaker:
             session = self._sessions.pop(session_id, None)
             if not session:
                 return False
-            with contextlib.suppress(ValueError):
-                self._waiting_order.remove(session_id)
-        await self._notify_sessions([session_id])
+            queue = self._waiting_by_mode.get(session.mode)
+            if queue is not None:
+                with contextlib.suppress(ValueError):
+                    queue.remove(session_id)
+        await self._notify_sessions(self._all_waiting_ids() + [session_id])
         return True
 
     async def _run(self) -> None:
@@ -188,26 +232,42 @@ class Matchmaker:
     async def _tick(self) -> None:
         now = time.time()
         async with self._lock:
-            self._waiting_order = [sid for sid in self._waiting_order if self._sessions.get(sid)]
-            ready_sessions = [self._sessions[sid] for sid in self._waiting_order if self._sessions[sid].status == "waiting"]
+            waiting_to_notify: List[str] = []
+            for mode, queue in self._waiting_by_mode.items():
+                valid_queue = []
+                for session_id in queue:
+                    player_session = self._sessions.get(session_id)
+                    if player_session and player_session.status == "waiting" and player_session.mode == mode:
+                        valid_queue.append(session_id)
+                self._waiting_by_mode[mode] = valid_queue
 
-            full_capacity = self.players_per_match
-            while len(ready_sessions) >= full_capacity:
-                batch = ready_sessions[:full_capacity]
-                await self._create_match(batch)
-                ready_sessions = [s for s in ready_sessions if s.status == "waiting"]
+                rule = self._mode_rules[mode]
+                capacity = int(rule["players_per_match"])
 
-            if ready_sessions:
-                oldest = ready_sessions[0]
-                if now - oldest.joined_at >= self.max_wait_time:
-                    await self._create_match(ready_sessions)
-        await self._notify_sessions(self._waiting_order)
+                def ready_sessions_list() -> List[PlayerSession]:
+                    return [self._sessions[sid] for sid in self._waiting_by_mode[mode] if self._sessions[sid].status == "waiting"]
 
-    async def _create_match(self, participants: List[PlayerSession]) -> None:
+                ready_sessions = ready_sessions_list()
+
+                while len(ready_sessions) >= capacity:
+                    batch = ready_sessions[:capacity]
+                    await self._create_match(batch, mode, rule)
+                    ready_sessions = ready_sessions_list()
+
+                if ready_sessions:
+                    oldest = ready_sessions[0]
+                    if now - oldest.joined_at >= self.max_wait_time:
+                        await self._create_match(ready_sessions, mode, rule)
+                        ready_sessions = ready_sessions_list()
+
+                waiting_to_notify.extend(self._waiting_by_mode[mode])
+        await self._notify_sessions(waiting_to_notify)
+
+    async def _create_match(self, participants: List[PlayerSession], mode: str, rule: Dict[str, object]) -> None:
         match_id = str(uuid.uuid4())
         mode, map_name = random.choice(GAME_MODES)
-        human_sessions = list(participants)
-        capacity = self.players_per_match
+        capacity = int(rule["players_per_match"])
+        human_sessions = list(participants)[:capacity]
         squads: List[Dict] = []
 
         def ensure_squad(index: int) -> Dict:
@@ -223,7 +283,7 @@ class Matchmaker:
             return squad
 
         for idx, session in enumerate(human_sessions):
-            squad_index = idx // self.team_size
+            squad_index = idx // int(rule["team_size"])
             squad = ensure_squad(squad_index)
             member = self._build_member_entry(
                 display_name=session.display_name,
@@ -237,15 +297,18 @@ class Matchmaker:
             session.match_id = match_id
             session.squad_id = squad["squadId"]
             session.last_update = time.time()
-            if session.session_id in self._waiting_order:
-                self._waiting_order.remove(session.session_id)
+        queue = self._waiting_by_mode.get(participants[0].mode if participants else mode)
+        if queue is not None:
+            for session in human_sessions:
+                with contextlib.suppress(ValueError):
+                    queue.remove(session.session_id)
 
         current_players = len(human_sessions)
         if current_players < capacity:
             slots_remaining = capacity - current_players
             random.shuffle(BOT_NAMES)
             for slot in range(slots_remaining):
-                squad_index = (current_players + slot) // self.team_size
+                squad_index = (current_players + slot) // int(rule["team_size"])
                 squad = ensure_squad(squad_index)
                 bot_profile = self.cosmetics.random_outfit()
                 bot_member = self._build_member_entry(
@@ -276,6 +339,7 @@ class Matchmaker:
                 perspective=session,
             )
         await self._notify_sessions([s.session_id for s in human_sessions])
+        await self._notify_sessions(self._all_waiting_ids())
 
     async def serialize_session(self, session_id: str) -> Optional[Dict]:
         async with self._lock:
@@ -308,11 +372,17 @@ class Matchmaker:
             "userId": session.user_id,
             "squadId": session.squad_id,
             "cosmetics": session.cosmetic_profile,
+            "mode": session.mode,
+            "modeLabel": session.mode_label,
+            "teamSize": session.team_size,
+            "playersPerMatch": session.players_per_match,
         }
         if session.status == "waiting":
-            position = self._waiting_order.index(session.session_id) + 1 if session.session_id in self._waiting_order else 1
+            queue = self._waiting_by_mode.get(session.mode, [])
+            position = queue.index(session.session_id) + 1 if session.session_id in queue else 1
             payload["queuePosition"] = position
-            payload["playersSearching"] = len(self._waiting_order)
+            payload["queueSize"] = len(queue)
+            payload["playersSearching"] = self._total_waiting()
         if session.match_payload:
             payload["match"] = session.match_payload
         return payload
@@ -321,10 +391,17 @@ class Matchmaker:
         async with self._lock:
             active_matches = len([m for m in self._matches.values() if m.started_at and (time.time() - m.started_at) < 900])
             return {
-                "onlinePlayers": max(len(self._sessions), len(self._waiting_order) + active_matches * self.players_per_match),
-                "searching": len(self._waiting_order),
+                "onlinePlayers": max(len(self._sessions), self._total_waiting() + active_matches * max(
+                    (int(rule["players_per_match"]) for rule in self._mode_rules.values()),
+                    default=0,
+                )),
+                "searching": self._total_waiting(),
                 "activeMatches": active_matches,
             }
+
+    async def presence_snapshot(self) -> Dict[int, str]:
+        async with self._lock:
+            return {session.user_id: session.status for session in self._sessions.values()}
 
     async def _notify_sessions(self, session_ids: Iterable[str]) -> None:
         unique_ids = list(dict.fromkeys(session_ids))
@@ -372,6 +449,15 @@ class Matchmaker:
         if match.map_layout:
             payload["mapLayout"] = match.map_layout
         return payload
+
+    def _total_waiting(self) -> int:
+        return sum(len(queue) for queue in self._waiting_by_mode.values())
+
+    def _all_waiting_ids(self) -> List[str]:
+        ids: List[str] = []
+        for queue in self._waiting_by_mode.values():
+            ids.extend(queue)
+        return ids
 
     async def _fanout(self, session_id: str, subscribers: List[WebSocket], payload: Dict) -> None:
         stale: List[WebSocket] = []

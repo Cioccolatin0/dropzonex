@@ -1,3 +1,20 @@
+import {
+  ACESFilmicToneMapping,
+  AnimationMixer,
+  Box3,
+  Color,
+  DirectionalLight,
+  HemisphereLight,
+  PerspectiveCamera,
+  Scene,
+  Vector3,
+  WebGLRenderer,
+  Clock,
+  SRGBColorSpace,
+} from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
 const initialDataElement = document.getElementById("initial-data");
 const initialLobby = initialDataElement ? JSON.parse(initialDataElement.textContent) : null;
 
@@ -5,9 +22,9 @@ const playButton = document.getElementById("play-button");
 const cancelButton = document.getElementById("cancel-button");
 const queueStatus = document.getElementById("queue-status");
 const squadContainer = document.getElementById("squad");
-const heroName = document.getElementById("hero-name");
+const heroName = document.getElementById("player-name");
 const heroTitle = document.getElementById("hero-title");
-const heroLevel = document.getElementById("hero-level");
+const heroLevel = document.getElementById("player-level");
 const xpFill = document.getElementById("xp-fill");
 const loadoutPrimary = document.getElementById("loadout-primary");
 const loadoutSecondary = document.getElementById("loadout-secondary");
@@ -22,6 +39,7 @@ const statActive = document.getElementById("stat-active");
 const currencyCredits = document.getElementById("currency-credits");
 const currencyFlux = document.getElementById("currency-flux");
 const currencyTokens = document.getElementById("currency-tokens");
+const playerAvatar = document.getElementById("player-avatar");
 const passLevel = document.getElementById("pass-level");
 const passProgress = document.getElementById("pass-progress");
 const passProgressLabel = document.getElementById("pass-progress-label");
@@ -63,6 +81,7 @@ const shopPreviewPrice = document.getElementById("shop-preview-price");
 const shopPreviewType = document.getElementById("shop-preview-type");
 const shopPreviewOwned = document.getElementById("shop-preview-owned");
 const shopBuyButton = document.getElementById("shop-buy-button");
+const shopGiftButton = document.getElementById("shop-gift-button");
 const profileMatches = document.getElementById("profile-matches");
 const profileWins = document.getElementById("profile-wins");
 const profileWinrate = document.getElementById("profile-winrate");
@@ -79,12 +98,39 @@ const logoutFeedback = document.getElementById("logout-feedback");
 const navButtons = Array.from(document.querySelectorAll(".nav-btn"));
 const viewSections = Array.from(document.querySelectorAll("[data-view-section]"));
 const allowedViews = new Set(["play", "pass", "locker", "shop", "stats", "friends", "settings"]);
+const heroCanvas = document.getElementById("hero-canvas");
+const modeCards = Array.from(document.querySelectorAll("[data-match-mode]"));
+const settingAudioMaster = document.getElementById("setting-audio-master");
+const settingAudioMusic = document.getElementById("setting-audio-music");
+const settingAudioSfx = document.getElementById("setting-audio-sfx");
+const settingGraphicsQuality = document.getElementById("setting-graphics-quality");
+const settingGraphicsVsync = document.getElementById("setting-graphics-vsync");
+const settingGraphicsPerformance = document.getElementById("setting-graphics-performance");
+const settingControlsSens = document.getElementById("setting-controls-sens");
+const settingControlsInvert = document.getElementById("setting-controls-invert");
+const settingControlsRumble = document.getElementById("setting-controls-rumble");
+const settingAccessibilityColor = document.getElementById("setting-accessibility-color");
+const settingAccessibilitySubtitles = document.getElementById("setting-accessibility-subtitles");
+const settingAccessibilityContrast = document.getElementById("setting-accessibility-contrast");
 const authOverlay = document.getElementById("auth-overlay");
 const authTabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
 const loginForm = document.getElementById("login-form");
 const registerForm = document.getElementById("register-form");
 const loginError = document.getElementById("login-error");
 const registerError = document.getElementById("register-error");
+
+const MODE_CONFIG = {
+  solo: { label: "Solo", teamSize: 1 },
+  duo: { label: "Duo", teamSize: 2 },
+  squad: { label: "Squad", teamSize: 4 },
+};
+
+const DEFAULT_PREFERENCES = {
+  audio: { master: 80, music: 65, sfx: 90 },
+  graphics: { quality: "ultra", vsync: true, performance: false },
+  controls: { sensitivity: 50, invertY: false, rumble: true },
+  accessibility: { colorMode: "nessuna", subtitles: true, contrast: false },
+};
 
 const state = {
   token: window.localStorage.getItem("dropzonex-token"),
@@ -98,7 +144,225 @@ const state = {
   selectedTierId: null,
   selectedShopItemId: null,
   matchmakingSocket: null,
+  selectedMode: null,
+  preferences: {},
+  heroViewer: null,
 };
+
+class HeroViewer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.scene = new Scene();
+    this.scene.background = null;
+    this.renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = SRGBColorSpace;
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.camera = new PerspectiveCamera(35, 1, 0.1, 100);
+    this.camera.position.set(0, 1.6, 3.6);
+    this.controls = new OrbitControls(this.camera, canvas);
+    this.controls.enablePan = false;
+    this.controls.enableZoom = false;
+    this.controls.autoRotate = true;
+    this.controls.autoRotateSpeed = 0.55;
+    this.controls.target.set(0, 1.35, 0);
+    this.loader = new GLTFLoader();
+    this.mixer = null;
+    this.clock = new Clock();
+    this.currentUrl = null;
+    this.currentModel = null;
+    this.animationSets = [];
+    this._addLights();
+    this.resize();
+    window.addEventListener("resize", () => this.resize());
+    this.animate = this.animate.bind(this);
+    requestAnimationFrame(this.animate);
+  }
+
+  _addLights() {
+    const hemi = new HemisphereLight(0x8fb8ff, 0x0b1120, 0.8);
+    const key = new DirectionalLight(0xffffff, 1.05);
+    key.position.set(3.5, 6, 5.5);
+    const rim = new DirectionalLight(0x64ffda, 0.65);
+    rim.position.set(-4.5, 5, -3.5);
+    [hemi, key, rim].forEach((light) => this.scene.add(light));
+  }
+
+  setAnimationSets(animationSets) {
+    this.animationSets = Array.isArray(animationSets) ? animationSets : [];
+  }
+
+  resize() {
+    if (!this.canvas || !this.canvas.parentElement) return;
+    const { clientWidth, clientHeight } = this.canvas.parentElement;
+    if (!clientWidth || !clientHeight) return;
+    this.renderer.setSize(clientWidth, clientHeight, false);
+    this.camera.aspect = clientWidth / clientHeight;
+    this.camera.updateProjectionMatrix();
+  }
+
+  loadOutfit(outfit) {
+    if (!outfit || !outfit.modelUrl) return;
+    const url = outfit.modelUrl;
+    this.currentUrl = url;
+    this.loader.load(
+      url,
+      (gltf) => {
+        if (this.currentUrl !== url) return;
+        this._applyModel(gltf, outfit);
+      },
+      undefined,
+      (error) => {
+        console.error("Impossibile caricare l'outfit", error);
+      },
+    );
+  }
+
+  _applyModel(gltf, outfit) {
+    const model = gltf.scene;
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = false;
+        child.receiveShadow = false;
+      }
+    });
+    const boundingBox = new Box3().setFromObject(model);
+    const size = boundingBox.getSize(new Vector3());
+    const center = boundingBox.getCenter(new Vector3());
+    model.position.sub(center);
+    const targetHeight = 2.6;
+    const scale = size.y > 0 ? targetHeight / size.y : 1;
+    model.scale.setScalar(scale);
+    const postBox = new Box3().setFromObject(model);
+    model.position.y -= postBox.min.y;
+    if (this.currentModel) {
+      this.scene.remove(this.currentModel);
+    }
+    this.currentModel = model;
+    this.scene.add(model);
+    this.controls.target.set(0, 1.4, 0);
+
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer = null;
+    }
+    if (gltf.animations && gltf.animations.length) {
+      this.mixer = new AnimationMixer(model);
+      const clip = this._resolveIdleClip(outfit, gltf.animations);
+      if (clip) {
+        const action = this.mixer.clipAction(clip);
+        action.play();
+      }
+    }
+  }
+
+  _resolveIdleClip(outfit, animations) {
+    if (!animations || animations.length === 0) return null;
+    if (outfit?.animationSetId && this.animationSets.length) {
+      const set = this.animationSets.find((entry) => entry.id === outfit.animationSetId);
+      const idleName = set?.clips?.idle;
+      if (idleName) {
+        const match = animations.find((clip) => clip.name === idleName);
+        if (match) return match;
+      }
+    }
+    return animations[0];
+  }
+
+  animate() {
+    const delta = this.clock.getDelta();
+    if (this.mixer) {
+      this.mixer.update(delta);
+    }
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+    requestAnimationFrame(this.animate);
+  }
+}
+
+if (heroCanvas) {
+  state.heroViewer = new HeroViewer(heroCanvas);
+}
+
+function cloneDefaultPreferences() {
+  return JSON.parse(JSON.stringify(DEFAULT_PREFERENCES));
+}
+
+function loadPreferences() {
+  try {
+    const raw = window.localStorage.getItem("dropzonex-preferences");
+    if (!raw) return cloneDefaultPreferences();
+    const parsed = JSON.parse(raw);
+    return mergePreferences(parsed);
+  } catch (error) {
+    console.warn("Impossibile caricare le preferenze, uso i default", error);
+    return cloneDefaultPreferences();
+  }
+}
+
+function mergePreferences(partial) {
+  const base = cloneDefaultPreferences();
+  if (!partial || typeof partial !== "object") return base;
+  for (const [section, values] of Object.entries(partial)) {
+    if (typeof base[section] !== "object" || typeof values !== "object") continue;
+    Object.assign(base[section], values);
+  }
+  return base;
+}
+
+function persistPreferences() {
+  try {
+    window.localStorage.setItem("dropzonex-preferences", JSON.stringify(state.preferences));
+  } catch (error) {
+    console.warn("Impossibile salvare le preferenze", error);
+  }
+}
+
+function setPreference(path, value) {
+  if (!path) return;
+  const [section, key] = path.split(".");
+  if (!section || !key) return;
+  if (!state.preferences[section]) {
+    state.preferences[section] = {};
+  }
+  state.preferences[section][key] = value;
+  persistPreferences();
+}
+
+function getPreference(path, fallback) {
+  if (!path) return fallback;
+  const [section, key] = path.split(".");
+  if (!section || !key) return fallback;
+  return state.preferences?.[section]?.[key] ?? fallback;
+}
+
+function applyPreferenceControls() {
+  if (settingAudioMaster) settingAudioMaster.value = getPreference("audio.master", DEFAULT_PREFERENCES.audio.master);
+  if (settingAudioMusic) settingAudioMusic.value = getPreference("audio.music", DEFAULT_PREFERENCES.audio.music);
+  if (settingAudioSfx) settingAudioSfx.value = getPreference("audio.sfx", DEFAULT_PREFERENCES.audio.sfx);
+  if (settingGraphicsQuality) settingGraphicsQuality.value = getPreference("graphics.quality", DEFAULT_PREFERENCES.graphics.quality);
+  if (settingGraphicsVsync) settingGraphicsVsync.checked = getPreference("graphics.vsync", DEFAULT_PREFERENCES.graphics.vsync);
+  if (settingGraphicsPerformance) settingGraphicsPerformance.checked = getPreference("graphics.performance", DEFAULT_PREFERENCES.graphics.performance);
+  if (settingControlsSens) settingControlsSens.value = getPreference("controls.sensitivity", DEFAULT_PREFERENCES.controls.sensitivity);
+  if (settingControlsInvert) settingControlsInvert.checked = getPreference("controls.invertY", DEFAULT_PREFERENCES.controls.invertY);
+  if (settingControlsRumble) settingControlsRumble.checked = getPreference("controls.rumble", DEFAULT_PREFERENCES.controls.rumble);
+  if (settingAccessibilityColor) settingAccessibilityColor.value = getPreference("accessibility.colorMode", DEFAULT_PREFERENCES.accessibility.colorMode);
+  if (settingAccessibilitySubtitles) settingAccessibilitySubtitles.checked = getPreference("accessibility.subtitles", DEFAULT_PREFERENCES.accessibility.subtitles);
+  if (settingAccessibilityContrast) settingAccessibilityContrast.checked = getPreference("accessibility.contrast", DEFAULT_PREFERENCES.accessibility.contrast);
+}
+
+function bindPreferenceControl(element, path, options = {}) {
+  if (!element) return;
+  const events = options.events || ["input", "change"];
+  const transform = options.transform;
+  const handler = () => {
+    const raw = element.type === "checkbox" ? element.checked : element.value;
+    const value = transform ? transform(raw, element) : raw;
+    setPreference(path, value);
+  };
+  events.forEach((eventName) => element.addEventListener(eventName, handler));
+}
 
 async function apiFetch(url, options = {}) {
   const init = { ...options };
@@ -321,12 +585,51 @@ function formatShopReward(item) {
   }
 }
 
+function selectMatchMode(mode, options = {}) {
+  const valid = MODE_CONFIG[mode] ? mode : null;
+  state.selectedMode = valid;
+  modeCards.forEach((card) => {
+    const active = card.dataset.matchMode === state.selectedMode;
+    card.classList.toggle("selected", active);
+    card.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  if (!options.silent) {
+    if (state.selectedMode && !state.sessionId && queueStatus) {
+      queueStatus.textContent = `Pronto a lanciarti in ${MODE_CONFIG[state.selectedMode].label}.`;
+    } else if (!state.sessionId && queueStatus) {
+      queueStatus.textContent = "Seleziona una modalità per iniziare.";
+    }
+  }
+  updatePlayButtonIdle();
+}
+
+function updatePlayButtonIdle() {
+  if (!playButton || state.sessionId) return;
+  if (state.selectedMode) {
+    playButton.disabled = false;
+    playButton.textContent = "Avvia";
+    if (queueStatus) {
+      queueStatus.textContent = `Pronto a lanciarti in ${MODE_CONFIG[state.selectedMode].label}.`;
+    }
+  } else {
+    playButton.disabled = true;
+    playButton.textContent = "Gioca";
+    if (queueStatus) {
+      queueStatus.textContent = "Seleziona una modalità per iniziare.";
+    }
+  }
+}
+
 function setQueueSearching() {
-  queueStatus.textContent = "Ricerca giocatori in corso...";
-  playButton.disabled = true;
-  playButton.textContent = "Ricerca in corso...";
-  cancelButton.hidden = false;
-  cancelButton.disabled = false;
+  if (queueStatus) queueStatus.textContent = "Ricerca giocatori in corso...";
+  if (playButton) {
+    playButton.disabled = true;
+    playButton.textContent = "Ricerca in corso...";
+  }
+  if (cancelButton) {
+    cancelButton.hidden = false;
+    cancelButton.disabled = false;
+  }
   renderSquadPlaceholder();
 }
 
@@ -338,6 +641,7 @@ function initialise() {
   bindBattlePass();
   bindShop();
   bindFriends();
+  bindSettings();
   const url = new URL(window.location.href);
   const requestedView = url.searchParams.get("view") || document.body.dataset.activeView;
   toggleView(requestedView);
@@ -379,26 +683,38 @@ function toggleView(view, options = {}) {
 }
 
 function bindMatchmaking() {
-  playButton.addEventListener("click", async () => {
-    if (state.sessionId && state.latestSession && state.latestSession.match) {
-      await startMatch();
-      return;
-    }
-    await startQueue();
+  if (playButton) {
+    playButton.addEventListener("click", async () => {
+      if (state.sessionId && state.latestSession && state.latestSession.match) {
+        await startMatch();
+        return;
+      }
+      await startQueue();
+    });
+  }
+
+  if (cancelButton) {
+    cancelButton.addEventListener("click", async () => {
+      if (!state.sessionId) return;
+      cancelButton.disabled = true;
+      try {
+        await apiFetch(`/api/session/${state.sessionId}/cancel`, {
+          method: "POST",
+        });
+      } catch (error) {
+        console.error("Impossibile annullare la sessione", error);
+      }
+      resetQueue();
+    });
+  }
+
+  modeCards.forEach((card) => {
+    card.addEventListener("click", () => {
+      selectMatchMode(card.dataset.matchMode || "");
+    });
   });
 
-  cancelButton.addEventListener("click", async () => {
-    if (!state.sessionId) return;
-    cancelButton.disabled = true;
-    try {
-      await apiFetch(`/api/session/${state.sessionId}/cancel`, {
-        method: "POST",
-      });
-    } catch (error) {
-      console.error("Impossibile annullare la sessione", error);
-    }
-    resetQueue();
-  });
+  updatePlayButtonIdle();
 }
 
 function hydrateLobby(lobby) {
@@ -439,6 +755,10 @@ function hydrateLobby(lobby) {
   if (newsBlurb) {
     newsBlurb.textContent = lobby.news.blurb;
   }
+  if (playerAvatar && lobby.hero?.cosmetics?.equippedOutfit?.thumbnailUrl) {
+    playerAvatar.src = lobby.hero.cosmetics.equippedOutfit.thumbnailUrl;
+    playerAvatar.alt = `Profilo di ${lobby.hero.displayName}`;
+  }
   if (passLevel) {
     passLevel.textContent = lobby.battlePass.level;
   }
@@ -457,6 +777,13 @@ function hydrateLobby(lobby) {
   renderProfile(lobby.profile || {});
   renderFriends(lobby.friends || []);
   renderSettings(lobby.settings || {});
+  if (state.heroViewer) {
+    state.heroViewer.setAnimationSets(lobby.cosmetics?.animationSets || []);
+    const viewerOutfit = lobby.hero?.outfit || lobby.hero?.cosmetics?.equippedOutfit || lobby.cosmetics?.equippedOutfit;
+    if (viewerOutfit) {
+      state.heroViewer.loadOutfit(viewerOutfit);
+    }
+  }
 }
 
 async function refreshLobby(options = {}) {
@@ -478,12 +805,19 @@ async function startQueue() {
     showAuthOverlay("login");
     return;
   }
+  if (!state.selectedMode) {
+    if (queueStatus) {
+      queueStatus.textContent = "Seleziona una modalità prima di avviare.";
+    }
+    updatePlayButtonIdle();
+    return;
+  }
   setQueueSearching();
   try {
     const response = await apiFetch("/api/queue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ displayName: heroName.textContent }),
+      body: JSON.stringify({ displayName: heroName ? heroName.textContent : "Operatore", mode: state.selectedMode }),
     });
     if (!response.ok) {
       throw new Error(`Queue failed with status ${response.status}`);
@@ -491,15 +825,17 @@ async function startQueue() {
     const session = await response.json();
     state.sessionId = session.sessionId;
     state.latestSession = session;
+    if (session.mode) {
+      selectMatchMode(session.mode, { silent: true });
+    }
     renderSession(session);
     connectMatchmakingSocket(session.sessionId);
     beginPolling();
   } catch (error) {
     console.error("Errore durante il matchmaking", error);
     queueStatus.textContent = "Errore di matchmaking. Riprova.";
-    playButton.disabled = false;
-    playButton.textContent = "Avvia Matchmaking";
-    cancelButton.hidden = true;
+    if (cancelButton) cancelButton.hidden = true;
+    updatePlayButtonIdle();
   }
 }
 
@@ -571,27 +907,45 @@ function closeMatchmakingSocket() {
 
 function renderSession(session) {
   if (!session) return;
+  if (session.mode) {
+    selectMatchMode(session.mode, { silent: true });
+  }
   if (session.status === "waiting") {
     const position = session.queuePosition ?? 1;
-    const total = session.playersSearching ?? session.queuePosition ?? 1;
-    queueStatus.textContent = `In coda · posizione ${position} su ${total}`;
-    playButton.textContent = "Ricerca in corso...";
-    playButton.disabled = true;
-    cancelButton.hidden = false;
-    cancelButton.disabled = false;
-    renderSquadPlaceholder();
+    const label = session.modeLabel || (session.mode && MODE_CONFIG[session.mode]?.label);
+    const queueSize = Math.max(session.queueSize || 0, session.playersSearching || 0, position);
+    if (queueStatus) {
+      queueStatus.textContent = label
+        ? `Coda ${label} · posizione ${position} su ${queueSize}`
+        : `In coda · posizione ${position} su ${queueSize}`;
+    }
+    if (playButton) {
+      playButton.textContent = "Ricerca in corso...";
+      playButton.disabled = true;
+    }
+    if (cancelButton) {
+      cancelButton.hidden = false;
+      cancelButton.disabled = false;
+    }
+    renderSquadPlaceholder(session);
   } else if (session.status === "matched" && session.match) {
-    queueStatus.textContent = `Match trovato: ${session.match.mode} · ${session.match.map}`;
-    playButton.textContent = "Entra nel match";
-    playButton.disabled = false;
-    cancelButton.hidden = false;
-    cancelButton.disabled = false;
+    if (queueStatus) queueStatus.textContent = `Match trovato: ${session.match.mode} · ${session.match.map}`;
+    if (playButton) {
+      playButton.textContent = "Entra nel match";
+      playButton.disabled = false;
+    }
+    if (cancelButton) {
+      cancelButton.hidden = false;
+      cancelButton.disabled = false;
+    }
     renderSquad(extractSquadMembers(session.match, session));
   } else if (session.status === "playing") {
-    queueStatus.textContent = "Sessione avviata. Buona fortuna!";
-    playButton.textContent = "Avvia Matchmaking";
-    playButton.disabled = false;
-    cancelButton.hidden = true;
+    if (queueStatus) queueStatus.textContent = "Sessione avviata. Buona fortuna!";
+    if (playButton) {
+      playButton.disabled = false;
+      playButton.textContent = "Avvia";
+    }
+    if (cancelButton) cancelButton.hidden = true;
     renderSquad(session.match ? extractSquadMembers(session.match, session) : null);
     closeMatchmakingSocket();
     state.sessionId = null;
@@ -624,29 +978,70 @@ function renderSquad(squad) {
     const item = document.createElement("div");
     item.className = `squad-member${member.isBot ? " bot" : ""}`;
 
+    const avatar = document.createElement("div");
+    avatar.className = "squad-avatar";
+    const thumb = member.cosmetics?.thumbnailUrl || member.cosmetics?.thumbnail;
+    if (thumb) {
+      avatar.style.backgroundImage = `url(${thumb})`;
+    } else {
+      avatar.classList.add("placeholder");
+    }
+
+    const info = document.createElement("div");
+    info.className = "squad-info";
     const name = document.createElement("span");
     name.textContent = member.displayName;
-
-    const badge = document.createElement("span");
-    badge.textContent = member.isBot ? "BOT" : "PLAYER";
-
-    item.appendChild(name);
-    if (member.cosmetics?.outfitId) {
+    info.appendChild(name);
+    if (member.cosmetics?.name) {
       const detail = document.createElement("span");
       detail.className = "cosmetic-tag";
-      detail.textContent = member.cosmetics.name ?? "Skin";
-      item.appendChild(detail);
+      detail.textContent = member.cosmetics.name;
+      info.appendChild(detail);
     }
+
+    const badge = document.createElement("span");
+    badge.className = "squad-role";
+    badge.textContent = member.isBot ? "BOT" : "GIOCATORE";
+
+    item.appendChild(avatar);
+    item.appendChild(info);
     item.appendChild(badge);
     squadContainer.appendChild(item);
   });
 }
 
-function renderSquadPlaceholder() {
+function renderSquadPlaceholder(session) {
   squadContainer.innerHTML = "";
-  const placeholder = document.createElement("p");
-  placeholder.textContent = "In attesa di comporre la squadra...";
-  squadContainer.appendChild(placeholder);
+  const wrapper = document.createElement("div");
+  wrapper.className = "squad-placeholder";
+
+  const heading = document.createElement("strong");
+  const activeLabel = session?.modeLabel || (state.selectedMode && MODE_CONFIG[state.selectedMode]?.label) || "Preparazione";
+  heading.textContent = `Modalità ${activeLabel}`;
+  wrapper.appendChild(heading);
+
+  const message = document.createElement("span");
+  if (session && session.status === "waiting") {
+    const position = session.queuePosition || 1;
+    const queueSize = Math.max(session.queueSize || 0, position);
+    message.textContent = `Posizione ${position} su ${queueSize}. In attesa di operatori per completare la squadra.`;
+  } else if (state.selectedMode) {
+    const modeLabel = MODE_CONFIG[state.selectedMode]?.label || "selezionata";
+    message.textContent = `Premi \"Avvia\" per cercare una partita ${modeLabel}.`;
+  } else {
+    message.textContent = "Seleziona una modalità per iniziare il matchmaking.";
+  }
+  wrapper.appendChild(message);
+
+  const searching = session?.playersSearching;
+  if (searching && searching > 1) {
+    const meta = document.createElement("span");
+    meta.className = "squad-placeholder-meta";
+    meta.textContent = `${searching} operatori sono già in coda.`;
+    wrapper.appendChild(meta);
+  }
+
+  squadContainer.appendChild(wrapper);
 }
 
 async function startMatch() {
@@ -681,11 +1076,12 @@ function resetQueue() {
   closeMatchmakingSocket();
   state.sessionId = null;
   state.latestSession = null;
-  playButton.disabled = false;
-  playButton.textContent = "Avvia Matchmaking";
-  cancelButton.hidden = true;
-  queueStatus.textContent = "Pronto a lanciarti.";
+  if (cancelButton) {
+    cancelButton.hidden = true;
+    cancelButton.disabled = false;
+  }
   renderSquadPlaceholder();
+  updatePlayButtonIdle();
 }
 
 function renderPassTrack(battlePass, preferredTierId) {
@@ -902,6 +1298,13 @@ function renderLocker(locker, cosmetics, hero) {
   }
   if (outfitCount) outfitCount.textContent = String((cosmetics?.outfits || []).length);
   if (weaponCount) weaponCount.textContent = String((cosmetics?.weaponSkins || []).length);
+  if (state.heroViewer) {
+    state.heroViewer.setAnimationSets(cosmetics?.animationSets || []);
+    const viewerOutfit = hero?.outfit || cosmetics?.equippedOutfit;
+    if (viewerOutfit) {
+      state.heroViewer.loadOutfit(viewerOutfit);
+    }
+  }
 }
 
 function renderOutfitList(outfits, equippedId) {
@@ -1110,24 +1513,71 @@ function bindFriends() {
 
   if (friendList) {
     friendList.addEventListener("click", async (event) => {
-      const removeButton = event.target.closest("[data-action='remove']");
-      if (!removeButton) return;
-      const item = removeButton.closest("[data-username]");
+      const actionButton = event.target.closest("[data-action]");
+      if (!actionButton) return;
+      const item = actionButton.closest("[data-username]");
       if (!item) return;
       const username = item.dataset.username;
+      const action = actionButton.dataset.action;
       try {
-        const response = await apiFetch(`/api/friends/${encodeURIComponent(username)}`, {
-          method: "DELETE",
-        });
-        if (!response.ok) {
-          throw new Error(`Remove friend failed: ${response.status}`);
+        if (action === "remove") {
+          const response = await apiFetch(`/api/friends/${encodeURIComponent(username)}`, {
+            method: "DELETE",
+          });
+          if (!response.ok) {
+            throw new Error(`Remove friend failed: ${response.status}`);
+          }
+          await refreshLobby();
+        } else if (action === "invite") {
+          if (friendFeedback) {
+            friendFeedback.textContent = `Invito inviato a ${username}`;
+            friendFeedback.hidden = false;
+            window.setTimeout(() => {
+              friendFeedback.hidden = true;
+            }, 2000);
+          }
+        } else if (action === "gift") {
+          if (!state.selectedShopItemId) {
+            if (friendFeedback) {
+              friendFeedback.textContent = "Seleziona prima un oggetto nel negozio da regalare.";
+              friendFeedback.hidden = false;
+              window.setTimeout(() => {
+                friendFeedback.hidden = true;
+              }, 2500);
+            }
+            return;
+          }
+          await sendShopGift(state.selectedShopItemId, username, "Regalo dalla tua lista amici");
+          if (friendFeedback) {
+            friendFeedback.textContent = `Regalo inviato a ${username}`;
+            friendFeedback.hidden = false;
+            window.setTimeout(() => {
+              friendFeedback.hidden = true;
+            }, 2500);
+          }
         }
-        await refreshLobby();
       } catch (error) {
-        console.error("Impossibile rimuovere l'amico", error);
+        console.error("Azione amici non riuscita", error);
       }
     });
   }
+}
+
+function bindSettings() {
+  state.preferences = loadPreferences();
+  applyPreferenceControls();
+  bindPreferenceControl(settingAudioMaster, "audio.master", { transform: (value) => Number(value) });
+  bindPreferenceControl(settingAudioMusic, "audio.music", { transform: (value) => Number(value) });
+  bindPreferenceControl(settingAudioSfx, "audio.sfx", { transform: (value) => Number(value) });
+  bindPreferenceControl(settingGraphicsQuality, "graphics.quality");
+  bindPreferenceControl(settingGraphicsVsync, "graphics.vsync");
+  bindPreferenceControl(settingGraphicsPerformance, "graphics.performance");
+  bindPreferenceControl(settingControlsSens, "controls.sensitivity", { transform: (value) => Number(value) });
+  bindPreferenceControl(settingControlsInvert, "controls.invertY");
+  bindPreferenceControl(settingControlsRumble, "controls.rumble");
+  bindPreferenceControl(settingAccessibilityColor, "accessibility.colorMode");
+  bindPreferenceControl(settingAccessibilitySubtitles, "accessibility.subtitles");
+  bindPreferenceControl(settingAccessibilityContrast, "accessibility.contrast");
 }
 
 function renderShop(storefront, preferredItemId) {
@@ -1213,6 +1663,10 @@ function updateShopPreview(item) {
   if (!item) {
     shopBuyButton.disabled = true;
     shopBuyButton.dataset.itemId = "";
+    if (shopGiftButton) {
+      shopGiftButton.disabled = true;
+      shopGiftButton.dataset.itemId = "";
+    }
     if (shopPreviewName) shopPreviewName.textContent = "Seleziona un oggetto";
     if (shopPreviewDescription)
       shopPreviewDescription.textContent = "Seleziona un oggetto per visualizzarne la ricompensa e il costo.";
@@ -1240,7 +1694,11 @@ function updateShopPreview(item) {
   }
   shopBuyButton.dataset.itemId = item.id;
   shopBuyButton.disabled = Boolean(item.owned);
-  shopBuyButton.textContent = item.owned ? "Già acquistato" : "Acquista ora";
+  shopBuyButton.textContent = item.owned ? "Già acquistato" : "Acquista";
+  if (shopGiftButton) {
+    shopGiftButton.dataset.itemId = item.id;
+    shopGiftButton.disabled = !state.token;
+  }
 }
 
 function bindShop() {
@@ -1257,6 +1715,17 @@ function bindShop() {
       const itemId = shopBuyButton.dataset.itemId;
       if (!itemId) return;
       await purchaseShopItem(itemId);
+    });
+  }
+  if (shopGiftButton) {
+    shopGiftButton.addEventListener("click", async () => {
+      if (shopGiftButton.disabled) return;
+      const itemId = shopGiftButton.dataset.itemId;
+      if (!itemId) return;
+      const recipient = window.prompt("Inserisci l'username del destinatario");
+      if (!recipient) return;
+      const message = window.prompt("Messaggio (opzionale)") || "";
+      await sendShopGift(itemId, recipient, message);
     });
   }
 }
@@ -1278,6 +1747,27 @@ async function purchaseShopItem(itemId) {
     }
   } catch (error) {
     console.error("Impossibile completare l'acquisto", error);
+  }
+}
+
+async function sendShopGift(itemId, recipient, message) {
+  if (!state.token) {
+    showAuthOverlay("login");
+    return;
+  }
+  try {
+    const response = await apiFetch("/api/gifts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId, itemType: "shop", recipient, message }),
+    });
+    if (!response.ok) {
+      throw new Error(`Gift failed ${response.status}`);
+    }
+    await response.json();
+    await refreshLobby();
+  } catch (error) {
+    console.error("Impossibile inviare il regalo", error);
   }
 }
 
@@ -1305,19 +1795,65 @@ function renderFriends(friends) {
   friends.forEach((friend) => {
     const item = document.createElement("li");
     item.dataset.username = friend.username;
+    const identity = document.createElement("div");
+    identity.className = "friend-identity";
+    const dot = document.createElement("span");
+    dot.className = "status-dot";
+    const presence = friend.online ? friend.presence || "online" : friend.presence || friend.status || "offline";
+    dot.dataset.status = presence;
     const name = document.createElement("span");
     name.className = "friend-name";
     name.textContent = friend.username;
     const status = document.createElement("span");
     status.className = "friend-status";
-    status.textContent = friend.status;
+    status.textContent = friendStatusLabel(friend);
+    identity.append(dot, name, status);
+
+    const actions = document.createElement("div");
+    actions.className = "friend-actions";
+    const invite = document.createElement("button");
+    invite.className = "ghost";
+    invite.dataset.action = "invite";
+    invite.textContent = "Invita";
+    const gift = document.createElement("button");
+    gift.className = "ghost";
+    gift.dataset.action = "gift";
+    gift.textContent = "Regala";
     const remove = document.createElement("button");
     remove.className = "ghost";
     remove.dataset.action = "remove";
     remove.textContent = "Rimuovi";
-    item.append(name, status, remove);
+    actions.append(invite, gift, remove);
+
+    item.append(identity, actions);
     friendList.appendChild(item);
   });
+}
+
+function friendStatusLabel(friend) {
+  if (!friend) return "Offline";
+  if (friend.online) {
+    switch (friend.presence) {
+      case "waiting":
+        return "In coda";
+      case "matched":
+        return "Match trovato";
+      case "playing":
+        return "In partita";
+      default:
+        return "Online";
+    }
+  }
+  switch (friend.status) {
+    case "pending":
+      return "In attesa";
+    case "blocked":
+      return "Bloccato";
+    case "accepted":
+      return "Offline";
+    default:
+      return friend.status ? friend.status.charAt(0).toUpperCase() + friend.status.slice(1) : "Offline";
+  }
 }
 
 function renderSettings(settings) {
