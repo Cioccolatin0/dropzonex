@@ -100,8 +100,18 @@ class Matchmaker:
             match = self._matches.get(session.match_id)
             if match and match.started_at is None:
                 match.started_at = time.time()
-            session.status = "playing"
-            session.last_update = time.time()
+            if not match:
+                return None
+
+            payload = self._serialize_match_locked(match, include_estimate=False)
+
+            for other in self._sessions.values():
+                if other.match_id == match.match_id:
+                    if other.session_id == session_id:
+                        other.status = "playing"
+                    other.match_payload = payload
+                    other.last_update = time.time()
+
             return match
 
     async def cancel(self, session_id: str) -> bool:
@@ -177,13 +187,7 @@ class Matchmaker:
         for session in participants:
             session.status = "matched"
             session.match_id = match_id
-            session.match_payload = {
-                "matchId": match_id,
-                "mode": mode,
-                "map": map_name,
-                "squad": player_entries + bots,
-                "estimatedStart": time.time() + 3,
-            }
+            session.match_payload = self._serialize_match_locked(match, include_estimate=True)
             session.last_update = time.time()
             if session.session_id in self._waiting_order:
                 self._waiting_order.remove(session.session_id)
@@ -196,6 +200,8 @@ class Matchmaker:
             payload = {
                 "sessionId": session.session_id,
                 "status": session.status,
+                "playerId": session.player_id,
+                "displayName": session.display_name,
             }
             if session.status == "waiting":
                 position = self._waiting_order.index(session_id) + 1 if session_id in self._waiting_order else 1
@@ -205,6 +211,13 @@ class Matchmaker:
                 payload["match"] = session.match_payload
             return payload
 
+    async def serialize_match(self, match_id: str) -> Optional[Dict]:
+        async with self._lock:
+            match = self._matches.get(match_id)
+            if not match:
+                return None
+            return self._serialize_match_locked(match, include_estimate=False)
+
     async def lobby_snapshot(self) -> Dict:
         async with self._lock:
             active_matches = len([m for m in self._matches.values() if m.started_at and (time.time() - m.started_at) < 900])
@@ -213,3 +226,15 @@ class Matchmaker:
                 "searching": len(self._waiting_order),
                 "activeMatches": active_matches,
             }
+
+    def _serialize_match_locked(self, match: Match, *, include_estimate: bool) -> Dict:
+        payload = {
+            "matchId": match.match_id,
+            "mode": match.mode,
+            "map": match.map_name,
+            "squad": match.players + match.bots,
+            "startedAt": match.started_at,
+        }
+        if include_estimate:
+            payload["estimatedStart"] = time.time() + 3
+        return payload

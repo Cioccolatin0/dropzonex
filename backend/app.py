@@ -4,7 +4,7 @@ from __future__ import annotations
 import random
 import time
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -78,9 +78,13 @@ async def acknowledge(session_id: str) -> Dict:
     match = await matchmaker.acknowledge_match(session_id)
     if not match:
         raise HTTPException(status_code=404, detail="Session not ready")
+    serialized = await matchmaker.serialize_match(match.match_id)
+    match_url = f"/match/{match.match_id}?session={session_id}"
     return {
         "matchId": match.match_id,
-        "startedAt": time.time(),
+        "startedAt": match.started_at,
+        "match": serialized,
+        "matchUrl": match_url,
     }
 
 
@@ -90,6 +94,25 @@ async def cancel(session_id: str) -> Dict:
     if not cancelled:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"cancelled": True}
+
+
+@app.get("/match/{match_id}", response_class=HTMLResponse)
+async def match_view(request: Request, match_id: str, session: Optional[str] = None) -> HTMLResponse:
+    match_payload = await matchmaker.serialize_match(match_id)
+    if not match_payload:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    session_payload = None
+    if session:
+        session_payload = await matchmaker.serialize_session(session)
+    return templates.TemplateResponse(
+        "match.html",
+        {
+            "request": request,
+            "match": match_payload,
+            "session": session_payload,
+        },
+    )
 
 
 def _random_pilot_name() -> str:

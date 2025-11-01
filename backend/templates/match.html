@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dropzone X · Match</title>
+    <link rel="stylesheet" href="/static/css/app.css" />
+    <link rel="stylesheet" href="/static/css/match.css" />
+  </head>
+  <body class="match-body">
+    <div class="match-shell">
+      <header class="match-header">
+        <div class="header-left">
+          <span class="brand-mark">Δ</span>
+          <div class="match-meta">
+            <h1>{{ match.mode }}</h1>
+            <p>{{ match.map }}</p>
+          </div>
+        </div>
+        <div class="header-center">
+          <p id="match-status" class="match-status">Connessione al server...</p>
+          <div class="match-timer" aria-live="polite">
+            <span id="match-timer">00:00</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <a class="ghost" href="/">Esci alla lobby</a>
+        </div>
+      </header>
+
+      <main class="match-layout">
+        <aside class="squad-panel">
+          <h2>Squadra</h2>
+          {% set active_player = session.playerId if session else None %}
+          <ul id="squad-roster" class="squad-roster">
+            {% for member in match.squad %}
+            <li
+              class="roster-entry{% if member.isBot %} bot{% endif %}{% if active_player and member.playerId == active_player %} active{% endif %}"
+              data-player="{{ member.playerId }}"
+            >
+              <span class="name">{{ member.displayName }}</span>
+              <span class="badge">{% if member.isBot %}BOT{% else %}PLAYER{% endif %}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </aside>
+        <section class="arena">
+          <div class="holo-stage" role="presentation">
+            <canvas id="match-canvas" width="960" height="540"></canvas>
+            <div class="holo-overlay">
+              <p>Simulatore Dropzone in caricamento...</p>
+            </div>
+          </div>
+        </section>
+        <aside class="events-panel">
+          <h2>Feed missione</h2>
+          <ul id="event-feed" class="event-feed"></ul>
+        </aside>
+      </main>
+
+      <footer class="match-footer">
+        <span>Dropzone X backend · sessione orchestrata con bot quando necessario.</span>
+        <button id="return-button" class="cta-secondary">Torna alla lobby</button>
+      </footer>
+    </div>
+
+    <script id="match-data" type="application/json">{{ {"match": match, "session": session}|tojson }}</script>
+    <script src="/static/js/match.js" type="module"></script>
+  </body>
+</html>

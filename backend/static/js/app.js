@@ -311,10 +311,13 @@ async function startMatch() {
       throw new Error(`Start failed with status ${response.status}`);
     }
     const payload = await response.json();
-    queueStatus.textContent = `Match ${payload.matchId} avviato!`; // eventual hook for game scene
+    queueStatus.textContent = `Match ${payload.matchId} avviato!`;
     cancelButton.hidden = true;
     stopPolling();
     state.sessionId = null;
+    state.latestSession = null;
+    const destination = payload.matchUrl || "/";
+    window.location.href = destination;
   } catch (error) {
     console.error("Impossibile avviare il match", error);
     queueStatus.textContent = "Errore durante l'avvio. Riprova.";
