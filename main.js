@@ -1,10 +1,16 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js';
 import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/loaders/GLTFLoader.js';
 
+const API_BASE = '';
+
 const canvas = document.getElementById('game-canvas');
 const startScreen = document.getElementById('start-screen');
 const startButton = document.getElementById('start-button');
 const loadingStatus = document.getElementById('loading-status');
+const queueStatus = document.getElementById('queue-status');
+const queueStatusLabel = document.getElementById('queue-status-label');
+const queueStatusList = document.getElementById('queue-status-list');
+const queueStatusDetail = document.getElementById('queue-status-detail');
 const homeNavButtons = Array.from(document.querySelectorAll('.home-nav button'));
 const homePanels = new Map(
   Array.from(document.querySelectorAll('.home-panel')).map((panel) => [panel.dataset.section, panel])
@@ -20,15 +26,22 @@ const passLevelDisplay = document.getElementById('pass-level');
 const passProgressFill = document.getElementById('pass-progress-fill');
 const matchModeDisplay = document.getElementById('match-mode');
 const matchTimerDisplay = document.getElementById('match-timer');
+const squadRosterList = document.getElementById('squad-roster-list');
 
-const metaProgress = {
-  credits: 1250,
-  flux: 460,
-  tokens: 12,
-  passLevel: 27,
-  passProgress: 0.54,
-  mode: 'Assalto Orbitale',
+let metaProgress = {
+  credits: 0,
+  flux: 0,
+  tokens: 0,
+  passLevel: 0,
+  passProgress: 0,
+  mode: 'Modalità in preparazione',
 };
+let assetsReady = false;
+let lobbyReady = false;
+let queueing = false;
+let sessionId = null;
+let queuePollHandle = null;
+let currentMatch = null;
 
 let activeHomeSection = 'play';
 
@@ -38,31 +51,221 @@ function formatMeta(value) {
 
 function updateMetaUI() {
   if (currencyDisplays.credits) {
-    currencyDisplays.credits.textContent = formatMeta(metaProgress.credits);
+    currencyDisplays.credits.textContent = formatMeta(metaProgress.credits ?? 0);
   }
   if (currencyDisplays.flux) {
-    currencyDisplays.flux.textContent = formatMeta(metaProgress.flux);
+    currencyDisplays.flux.textContent = formatMeta(metaProgress.flux ?? 0);
   }
   if (currencyDisplays.tokens) {
-    currencyDisplays.tokens.textContent = formatMeta(metaProgress.tokens);
+    currencyDisplays.tokens.textContent = formatMeta(metaProgress.tokens ?? 0);
   }
   if (currencyDisplays.matchCredits) {
-    currencyDisplays.matchCredits.textContent = formatMeta(metaProgress.credits);
+    currencyDisplays.matchCredits.textContent = formatMeta(metaProgress.credits ?? 0);
   }
   if (currencyDisplays.matchTokens) {
-    currencyDisplays.matchTokens.textContent = formatMeta(metaProgress.tokens);
+    currencyDisplays.matchTokens.textContent = formatMeta(metaProgress.tokens ?? 0);
   }
   if (passLevelDisplay) {
-    passLevelDisplay.textContent = metaProgress.passLevel.toString();
+    passLevelDisplay.textContent = Math.max(0, metaProgress.passLevel ?? 0).toString();
   }
   if (passProgressFill && passProgressFill.parentElement) {
-    const percent = Math.round(metaProgress.passProgress * 100);
+    const percent = Math.round((metaProgress.passProgress ?? 0) * 100);
     passProgressFill.style.width = `${percent}%`;
     passProgressFill.parentElement.setAttribute('aria-valuenow', percent.toString());
   }
   if (matchModeDisplay) {
     matchModeDisplay.textContent = `Modalità: ${metaProgress.mode}`;
   }
+}
+
+function updateQueueStatus(message, listItems = [], detail = '') {
+  if (queueStatusLabel) {
+    queueStatusLabel.textContent = message;
+  }
+  if (queueStatusDetail) {
+    queueStatusDetail.textContent = detail;
+  }
+  if (queueStatusList) {
+    queueStatusList.innerHTML = '';
+    listItems.forEach((item) => {
+      const entry = document.createElement('li');
+      entry.textContent = item;
+      queueStatusList.appendChild(entry);
+    });
+  }
+}
+
+function renderRoster(squad = []) {
+  if (!squadRosterList) {
+    return;
+  }
+  squadRosterList.innerHTML = '';
+  squad.forEach((member) => {
+    const li = document.createElement('li');
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = member.displayName;
+    const tag = document.createElement('span');
+    tag.className = 'roster-tag';
+    tag.textContent = member.isBot ? 'BOT' : 'PILOTA';
+    li.appendChild(nameSpan);
+    li.appendChild(tag);
+    squadRosterList.appendChild(li);
+  });
+}
+
+async function fetchLobbyMeta() {
+  try {
+    const response = await fetch(`${API_BASE}/api/lobby`);
+    if (!response.ok) {
+      throw new Error('Impossibile recuperare i dati della lobby');
+    }
+    const data = await response.json();
+    metaProgress = {
+      credits: data.currencies?.credits ?? 0,
+      flux: data.currencies?.flux ?? 0,
+      tokens: data.currencies?.tokens ?? 0,
+      passLevel: data.battlePass?.level ?? 0,
+      passProgress: data.battlePass?.progress ?? 0,
+      mode: data.dailyHighlight ? `${data.dailyHighlight.mode} — ${data.dailyHighlight.map}` : 'Match in preparazione',
+      heroName: data.hero?.displayName,
+    };
+    updateMetaUI();
+    lobbyReady = true;
+    updateQueueStatus(
+      'Sei pronto per la missione?',
+      [
+        `Piloti online: ${formatMeta(data.activity?.onlinePlayers ?? 0)}`,
+        `In coda ora: ${formatMeta(data.activity?.searching ?? 0)}`,
+      ],
+      'Premi “Trova Match” per unirti alla squadra.'
+    );
+    maybeEnableStartButton();
+  } catch (error) {
+    updateQueueStatus(
+      'Connessione al backend fallita',
+      [],
+      error instanceof Error ? error.message : 'Errore inatteso.'
+    );
+  }
+}
+
+function maybeEnableStartButton() {
+  if (assetsReady && lobbyReady) {
+    startButton.disabled = false;
+    startButton.textContent = 'Trova Match';
+  }
+}
+
+function clearQueuePolling() {
+  if (queuePollHandle) {
+    window.clearTimeout(queuePollHandle);
+    queuePollHandle = null;
+  }
+}
+
+async function requestMatch() {
+  if (queueing) {
+    return;
+  }
+  queueing = true;
+  startButton.disabled = true;
+  startButton.textContent = 'In coda...';
+  updateQueueStatus('Ricerca partita in corso...', [], 'Sincronizzazione con il server.');
+  try {
+    const payload = { displayName: metaProgress.heroName ?? undefined };
+    const response = await fetch(`${API_BASE}/api/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error('Impossibile mettersi in coda');
+    }
+    const data = await response.json();
+    sessionId = data.sessionId;
+    updateQueueStatus(
+      'In attesa di altri piloti...',
+      [
+        `Posizione in coda: ${data.queuePosition ?? 1}`,
+        `Piloti in coda: ${formatMeta(data.playersSearching ?? 1)}`,
+      ],
+      'Ti avviseremo non appena il match sarà pronto.'
+    );
+    pollSessionStatus();
+  } catch (error) {
+    queueing = false;
+    startButton.disabled = false;
+    startButton.textContent = 'Trova Match';
+    updateQueueStatus(
+      'Errore nella ricerca partita',
+      [],
+      error instanceof Error ? error.message : 'Errore inatteso.'
+    );
+  }
+}
+
+async function pollSessionStatus() {
+  if (!sessionId) {
+    return;
+  }
+  try {
+    const response = await fetch(`${API_BASE}/api/session/${sessionId}`);
+    if (!response.ok) {
+      throw new Error('Sessione non trovata');
+    }
+    const data = await response.json();
+    if (data.status === 'matched' && data.match) {
+      await handleMatchReady(data.match);
+      return;
+    }
+    updateQueueStatus(
+      'Ricerca partita in corso...',
+      [
+        `Posizione in coda: ${data.queuePosition ?? 1}`,
+        `Piloti in coda: ${formatMeta(data.playersSearching ?? 1)}`,
+      ],
+      'Stiamo organizzando la tua squadra.'
+    );
+  } catch (error) {
+    updateQueueStatus(
+      'Problema di connessione alla lobby',
+      [],
+      error instanceof Error ? error.message : 'Errore inatteso.'
+    );
+    queueing = false;
+    sessionId = null;
+    startButton.disabled = false;
+    startButton.textContent = 'Trova Match';
+    return;
+  }
+
+  clearQueuePolling();
+  queuePollHandle = window.setTimeout(pollSessionStatus, 1000);
+}
+
+async function handleMatchReady(matchData) {
+  clearQueuePolling();
+  queueing = false;
+  currentMatch = matchData;
+  metaProgress.mode = `${matchData.mode} — ${matchData.map}`;
+  updateMetaUI();
+  updateQueueStatus(
+    'Match trovato! Preparati al drop.',
+    matchData.squad.map((member) => `${member.displayName}${member.isBot ? ' (BOT)' : ''}`),
+    `Partita su ${matchData.map}.`
+  );
+  renderRoster(matchData.squad);
+  startButton.textContent = 'Avvio partita...';
+
+  try {
+    await fetch(`${API_BASE}/api/session/${sessionId}/start`, { method: 'POST' });
+  } catch (error) {
+    console.warn("Impossibile notificare l'inizio del match:", error);
+  }
+
+  window.setTimeout(() => {
+    startGame();
+  }, 1200);
 }
 
 function setHomeSection(section) {
@@ -85,9 +288,12 @@ homeNavButtons.forEach((button) => {
 setHomeSection(activeHomeSection);
 updateMetaUI();
 updateMatchTimer();
+renderRoster([]);
+updateQueueStatus('Connessione al backend...', [], 'Recupero stato della lobby.');
+fetchLobbyMeta();
 
 startButton.disabled = true;
-startButton.textContent = 'Caricamento...';
+startButton.textContent = 'Inizializzazione...';
 canvas.tabIndex = 0;
 canvas.setAttribute('aria-label', 'Campo di gioco Dropzone X');
 
@@ -119,7 +325,6 @@ scene.add(world);
 
 const clock = new THREE.Clock();
 
-let assetsReady = false;
 let gameStarted = false;
 let matchElapsed = 0;
 
@@ -138,12 +343,8 @@ function updateMatchTimer() {
 const loadingManager = new THREE.LoadingManager(
   () => {
     assetsReady = true;
-    loadingStatus.textContent = 'Pronto a giocare!';
-    startButton.disabled = false;
-    startButton.textContent = 'Gioca ora';
-    if (document.hasFocus()) {
-      startButton.focus({ preventScroll: true });
-    }
+    loadingStatus.textContent = 'Risorse 3D pronte.';
+    maybeEnableStartButton();
   },
   (url, itemsLoaded, itemsTotal) => {
     const percent = itemsTotal ? Math.round((itemsLoaded / itemsTotal) * 100) : 0;
@@ -152,20 +353,22 @@ const loadingManager = new THREE.LoadingManager(
   (url) => {
     loadingStatus.textContent = `Errore nel caricamento di ${url}`;
     startButton.disabled = false;
-    startButton.textContent = 'Gioca ora';
+    startButton.textContent = 'Trova Match';
   }
 );
 
 function startGame() {
-  if (!assetsReady || gameStarted) {
+  if (!assetsReady || gameStarted || !currentMatch) {
     return;
   }
   gameStarted = true;
   startButton.disabled = true;
+  startButton.textContent = 'Partita in corso';
+  sessionId = null;
   matchElapsed = 0;
   updateMatchTimer();
   if (matchModeDisplay) {
-    matchModeDisplay.textContent = 'Modalità: Assalto Orbitale — Match attivo';
+    matchModeDisplay.textContent = `Modalità: ${currentMatch.mode} — ${currentMatch.map}`;
   }
   startScreen.classList.remove('visible');
   Object.keys(movement).forEach((key) => {
@@ -183,14 +386,14 @@ function startGame() {
 }
 
 startButton.addEventListener('click', () => {
-  if (assetsReady) {
-    startGame();
+  if (assetsReady && lobbyReady && !queueing) {
+    requestMatch();
   }
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.code === 'Enter' && assetsReady && !gameStarted) {
-    startGame();
+  if (event.code === 'Enter' && assetsReady && lobbyReady && !gameStarted && !queueing) {
+    requestMatch();
   }
 });
 

@@ -1,25 +1,16 @@
 #!/usr/bin/env python3
-"""Run a lightweight static server for Dropzone X assets."""
-from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+"""Launch the Dropzone X backend and static file server."""
 from pathlib import Path
-import os
+import uvicorn
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parent
-    handler = SimpleHTTPRequestHandler
-    server = ThreadingHTTPServer(("0.0.0.0", 8000), handler)
+    base_dir = Path(__file__).resolve().parent
+    app_path = "backend.app:app"
 
-    print("Serving Dropzone X at http://127.0.0.1:8000/index.html")
-    print("Press Ctrl+C to stop the server.")
-
-    try:
-        with server:
-            # Ensure we serve files from repository root
-            os.chdir(root)
-            server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nServer stopped.")
+    print("Starting Dropzone X backend on http://127.0.0.1:8000")
+    print("Apri http://127.0.0.1:8000/ nel browser per raggiungere la lobby.")
+    uvicorn.run(app_path, host="0.0.0.0", port=8000, reload=False, app_dir=str(base_dir))
 
 
 if __name__ == "__main__":

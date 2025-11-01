@@ -130,6 +130,11 @@
             </div>
             <p class="pass-note">Completa missioni giornaliere per ottenere XP extra.</p>
           </div>
+          <section id="queue-status" aria-live="polite" aria-atomic="true">
+            <p id="queue-status-label">Connettiti al matchmaking per trovare una squadra.</p>
+            <ul id="queue-status-list"></ul>
+            <p id="queue-status-detail" class="queue-detail"></p>
+          </section>
           <button id="start-button" type="button">Caricamento...</button>
         </footer>
         <p id="loading-status" class="loading-status">Caricamento risorse 3D... 0%</p>
@@ -156,6 +161,10 @@
             <div class="bar-track"><div class="fill" id="shield-fill"></div></div>
           </div>
         </div>
+        <aside id="squad-roster" aria-label="Composizione squadra">
+          <h2>Squadra</h2>
+          <ul id="squad-roster-list"></ul>
+        </aside>
         <div id="inventory">
           <h2>Inventario</h2>
           <ul id="inventory-list"></ul>
