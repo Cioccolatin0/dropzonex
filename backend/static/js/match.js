@@ -267,8 +267,36 @@ class ShooterGame {
       cosmetics: activeMember?.cosmetics || payload?.session?.cosmetics || null,
     };
 
+    const spawnVector = this.playerSpawnPoint ? this.scaleToVector3(this.playerSpawnPoint.position) : null;
+    if (spawnVector) {
+      const origin = this.controls.getObject();
+      origin.position.set(spawnVector.x, 1.6, spawnVector.z);
+      if (this.playerSpawnPoint?.rotation) {
+        origin.rotation.y = this.playerSpawnPoint.rotation[1] || 0;
+      }
+    }
+
     this.agentConfig = payload?.match?.playerAgent || this.player.cosmetics || activeMember?.cosmetics || null;
     this.animationBindings = (this.agentConfig && this.agentConfig.animationBindings) || {};
+
+    this.mapLayout = payload?.match?.mapLayout || payload?.mapLayout || null;
+    const firstPhaseRadius = this.mapLayout?.safePhases?.[0]?.radius || 60;
+    this.mapScale = this.mapLayout ? Math.max(0.02, 35 / firstPhaseRadius) : 1;
+    this.safePhases = (this.mapLayout?.safePhases || []).map((phase) => ({
+      ...phase,
+      scaledRadius: (phase.radius || 40) * this.mapScale,
+      scaledCenter: phase.center ? [phase.center[0] * this.mapScale, phase.center[2] * this.mapScale] : [0, 0],
+    }));
+    this.safeZoneMesh = null;
+    this.safeZoneFill = null;
+    this.safePhaseIndex = 0;
+    this.safePhaseTimer = 0;
+    this.totalSquads = this.payload?.match?.squads?.length || 1;
+    this.playerSquadIndex =
+      this.payload?.match?.squads?.findIndex((squad) => squad.squadId === this.payload?.match?.playerSquadId) ?? 0;
+    if (this.playerSquadIndex < 0) this.playerSquadIndex = 0;
+    this.availableSpawnPoints = (this.mapLayout?.spawnPoints || []).map((point) => ({ ...point, used: false }));
+    this.playerSpawnPoint = this.consumeSpawnPoint(this.playerSquadIndex);
 
     this.weapon = {
       name: "Photon Vandal",
@@ -355,10 +383,11 @@ class ShooterGame {
   }
 
   buildArena() {
-    const floorGeometry = new THREE.PlaneGeometry(80, 80);
+    const baseRadius = this.safePhases.length ? this.safePhases[0].scaledRadius + 6 : 40;
+    const floorGeometry = new THREE.CircleGeometry(baseRadius, 72);
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0x121a33,
-      metalness: 0.1,
+      color: 0x0f162c,
+      metalness: 0.12,
       roughness: 0.8,
     });
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
@@ -366,48 +395,51 @@ class ShooterGame {
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    const grid = new THREE.GridHelper(80, 80, 0x4bbad5, 0x274a69);
-    grid.position.y = 0.01;
+    const grid = new THREE.GridHelper(baseRadius * 2, Math.max(32, Math.floor(baseRadius)), 0x4bbad5, 0x274a69);
+    grid.position.y = 0.02;
     this.scene.add(grid);
 
-    const walls = [
-      { w: 80, h: 8, d: 1, x: 0, y: 4, z: -40 },
-      { w: 80, h: 8, d: 1, x: 0, y: 4, z: 40 },
-      { w: 1, h: 8, d: 80, x: -40, y: 4, z: 0 },
-      { w: 1, h: 8, d: 80, x: 40, y: 4, z: 0 },
-    ];
-    walls.forEach((wall) => {
-      const geometry = new THREE.BoxGeometry(wall.w, wall.h, wall.d);
-      const material = new THREE.MeshStandardMaterial({ color: 0x0c152d, metalness: 0.2, roughness: 0.75 });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(wall.x, wall.y, wall.z);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
+    const perimeterMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111b33,
+      metalness: 0.2,
+      roughness: 0.65,
     });
+    const perimeter = new THREE.Mesh(new THREE.CylinderGeometry(baseRadius + 4, baseRadius + 4, 6, 64, 1, true), perimeterMaterial);
+    perimeter.material.side = THREE.DoubleSide;
+    perimeter.position.y = 3;
+    this.scene.add(perimeter);
 
-    const coverMaterial = new THREE.MeshStandardMaterial({ color: 0x1c2f59, metalness: 0.15, roughness: 0.7 });
-    const obstacleGeometries = [
-      new THREE.BoxGeometry(8, 4, 4),
-      new THREE.BoxGeometry(6, 5, 3),
-      new THREE.BoxGeometry(5, 3, 5),
-    ];
-    const obstaclePositions = [
-      new THREE.Vector3(-12, 2, -6),
-      new THREE.Vector3(14, 2.5, -2),
-      new THREE.Vector3(-5, 1.5, 12),
-      new THREE.Vector3(10, 1.5, 18),
-      new THREE.Vector3(-18, 2, 16),
-    ];
+    if (this.mapLayout?.lootZones) {
+      this.mapLayout.lootZones.forEach((zone) => {
+        const radius = (zone.radius || 80) * this.mapScale;
+        const ringGeometry = new THREE.RingGeometry(Math.max(0.1, radius - 0.8), radius, 48);
+        const ringMaterial = new THREE.MeshBasicMaterial({
+          color: zone.rarity === "legendary" ? 0xffc15a : zone.rarity === "epic" ? 0x7b8bff : 0x5ffff1,
+          transparent: true,
+          opacity: 0.28,
+          side: THREE.DoubleSide,
+        });
+        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(zone.position[0] * this.mapScale, 0.06, zone.position[2] * this.mapScale);
+        this.scene.add(ring);
+      });
+    }
 
-    obstaclePositions.forEach((position, index) => {
-      const geometry = obstacleGeometries[index % obstacleGeometries.length];
-      const mesh = new THREE.Mesh(geometry, coverMaterial.clone());
-      mesh.position.copy(position);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-    });
+    if (this.availableSpawnPoints.length > 0) {
+      const markerGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.18, 18);
+      const friendlyMaterial = new THREE.MeshStandardMaterial({ color: 0x5ffff1, emissive: 0x1d6571, emissiveIntensity: 0.4 });
+      const enemyMaterial = new THREE.MeshStandardMaterial({ color: 0xff6ad5, emissive: 0x662544, emissiveIntensity: 0.45 });
+      this.availableSpawnPoints.forEach((point) => {
+        const material = point.squad === this.playerSquadIndex ? friendlyMaterial : enemyMaterial;
+        const marker = new THREE.Mesh(markerGeometry, material.clone());
+        const scaled = this.scaleToVector3(point.position);
+        marker.position.set(scaled.x, 0.1, scaled.z);
+        this.scene.add(marker);
+      });
+    }
+
+    this.createSafeZone();
   }
 
   async prepareAssets() {
@@ -456,8 +488,18 @@ class ShooterGame {
       if (member.playerId === this.player.id) return;
       const rig = this.createAgentRig({ isEnemy: false, cosmetic: member.cosmetics });
       const mesh = rig.mesh;
-      mesh.position.set(-6 + index * 3, 1.2, -10 - index * 2);
-      mesh.rotation.y = Math.PI;
+      const spawnPoint = this.consumeSpawnPoint(this.playerSquadIndex) || this.playerSpawnPoint;
+      if (spawnPoint) {
+        const spawnPosition = this.scaleToVector3(spawnPoint.position);
+        mesh.position.copy(spawnPosition);
+        mesh.position.y = 1.2;
+        if (spawnPoint.rotation) {
+          mesh.rotation.y = spawnPoint.rotation[1] || Math.PI;
+        }
+      } else {
+        mesh.position.set(-6 + index * 3, 1.2, -10 - index * 2);
+        mesh.rotation.y = Math.PI;
+      }
       this.scene.add(mesh);
       rig.play("idle");
       this.registerRig(rig);
@@ -481,13 +523,24 @@ class ShooterGame {
 
   spawnEnemy(blueprint) {
     if (!blueprint) return null;
+    const enemySquadIndex = (this.playerSquadIndex + 1 + (blueprint.spawnIndex || 0)) % Math.max(1, this.totalSquads);
+    const spawnPoint = this.consumeSpawnPoint(enemySquadIndex);
     const angle = (blueprint.spawnIndex / Math.max(1, this.totalEnemies)) * Math.PI * 2;
-    const radius = 26 + Math.random() * 6;
-    const spawn = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+    const fallbackRadius = 26 + Math.random() * 6;
+    const fallback = new THREE.Vector3(
+      Math.cos(angle) * fallbackRadius,
+      0,
+      Math.sin(angle) * fallbackRadius,
+    );
+    const spawn = spawnPoint ? this.scaleToVector3(spawnPoint.position) : fallback;
     const rig = this.createAgentRig({ isEnemy: true });
     const mesh = rig.mesh;
     mesh.position.copy(spawn);
-    mesh.rotation.y = angle + Math.PI;
+    if (spawnPoint?.rotation) {
+      mesh.rotation.y = spawnPoint.rotation[1] || angle + Math.PI;
+    } else {
+      mesh.rotation.y = angle + Math.PI;
+    }
     mesh.scale.multiplyScalar(1.05);
     this.scene.add(mesh);
     rig.play("idle");
@@ -551,6 +604,74 @@ class ShooterGame {
     return rig;
   }
 
+  scaleToVector3(position = []) {
+    const [x = 0, y = 0, z = 0] = position;
+    return new THREE.Vector3(x * this.mapScale, y * this.mapScale, z * this.mapScale);
+  }
+
+  consumeSpawnPoint(preferredSquad) {
+    if (!this.availableSpawnPoints || this.availableSpawnPoints.length === 0) return null;
+    let candidate = this.availableSpawnPoints.find(
+      (point) => !point.used && (preferredSquad == null || point.squad === preferredSquad),
+    );
+    if (!candidate) {
+      candidate = this.availableSpawnPoints.find((point) => !point.used);
+    }
+    if (!candidate) {
+      candidate = this.availableSpawnPoints[0];
+    }
+    candidate.used = true;
+    return candidate;
+  }
+
+  createSafeZone() {
+    if (!this.safePhases.length) return;
+    const phase = this.safePhases[0];
+    const ringGeometry = new THREE.RingGeometry(Math.max(0.1, phase.scaledRadius - 1.5), phase.scaledRadius, 96);
+    const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x5ffff1, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+    this.safeZoneMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+    this.safeZoneMesh.rotation.x = -Math.PI / 2;
+    this.safeZoneMesh.position.set(phase.scaledCenter[0], 0.05, phase.scaledCenter[1]);
+    this.scene.add(this.safeZoneMesh);
+
+    const fillGeometry = new THREE.CircleGeometry(Math.max(0.1, phase.scaledRadius - 1.5), 96);
+    const fillMaterial = new THREE.MeshBasicMaterial({ color: 0x0f243f, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
+    this.safeZoneFill = new THREE.Mesh(fillGeometry, fillMaterial);
+    this.safeZoneFill.rotation.x = -Math.PI / 2;
+    this.safeZoneFill.position.copy(this.safeZoneMesh.position);
+    this.scene.add(this.safeZoneFill);
+  }
+
+  updateSafeZone(delta) {
+    if (!this.safePhases.length || !this.safeZoneMesh || !this.missionActive) return;
+    const currentPhase = this.safePhases[this.safePhaseIndex];
+    const nextPhase = this.safePhases[Math.min(this.safePhaseIndex + 1, this.safePhases.length - 1)];
+    if (!currentPhase) return;
+    this.safePhaseTimer += delta;
+    const duration = currentPhase.duration || 120;
+    const progress = Math.min(1, this.safePhaseTimer / duration);
+    const targetRadius = nextPhase ? nextPhase.scaledRadius : currentPhase.scaledRadius * 0.35;
+    const interpolatedRadius = THREE.MathUtils.lerp(currentPhase.scaledRadius, targetRadius, progress);
+    const center = nextPhase ? nextPhase.scaledCenter : currentPhase.scaledCenter;
+    const innerRadius = Math.max(0.1, interpolatedRadius - 1.4);
+
+    this.safeZoneMesh.geometry.dispose();
+    this.safeZoneMesh.geometry = new THREE.RingGeometry(innerRadius, interpolatedRadius, 96);
+    this.safeZoneMesh.position.set(center[0], 0.05, center[1]);
+
+    if (this.safeZoneFill) {
+      this.safeZoneFill.geometry.dispose();
+      this.safeZoneFill.geometry = new THREE.CircleGeometry(innerRadius, 96);
+      this.safeZoneFill.position.copy(this.safeZoneMesh.position);
+    }
+
+    if (progress >= 1 && this.safePhaseIndex < this.safePhases.length - 1) {
+      this.safePhaseIndex += 1;
+      this.safePhaseTimer = 0;
+      addFeedEntry(`La zona sicura si restringe · fase ${this.safePhaseIndex + 1}`);
+    }
+  }
+
   bindInput() {
     document.addEventListener("keydown", (event) => this.onKeyDown(event));
     document.addEventListener("keyup", (event) => this.onKeyUp(event));
@@ -597,6 +718,7 @@ class ShooterGame {
     if (!this.hasLaunched) {
       addFeedEntry("Operazione avviata.");
       this.hasLaunched = true;
+      this.safePhaseTimer = 0;
     }
     const phaseName = MATCH_PHASES[Math.min(MATCH_PHASES.length - 1, Math.max(1, phaseIndex))];
     if (statusLabel) statusLabel.textContent = `Operazione attiva · ${phaseName}`;
@@ -887,6 +1009,7 @@ class ShooterGame {
     this.rigs.forEach((rig) => rig.update(delta));
     this.tickRegeneration(delta);
     this.maybeSpawnReinforcements(delta);
+    this.updateSafeZone(delta);
     this.renderer.render(this.scene, this.camera);
   }
 

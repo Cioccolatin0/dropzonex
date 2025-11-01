@@ -1,8 +1,9 @@
 import random
+import random
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set
 
 
 @dataclass
@@ -56,6 +57,36 @@ class CosmeticRepository:
         self._equipped_outfit_id: Optional[str] = None
         self._equipped_weapon_skin_id: Optional[str] = None
         self._seed_defaults()
+
+    # ------------------------------------------------------------------
+    # Player state synchronisation
+    # ------------------------------------------------------------------
+    def apply_player_state(
+        self,
+        *,
+        owned_outfits: Iterable[str],
+        owned_weapon_skins: Iterable[str],
+        equipped_outfit: Optional[str] = None,
+        equipped_weapon_skin: Optional[str] = None,
+    ) -> None:
+        """Synchronise repository ownership with persisted player state."""
+
+        self._owned_outfit_ids = {oid for oid in owned_outfits if oid in self._outfits}
+        self._owned_weapon_skin_ids = {wid for wid in owned_weapon_skins if wid in self._weapon_skins}
+
+        if equipped_outfit and equipped_outfit in self._outfits:
+            self._equipped_outfit_id = equipped_outfit
+        elif self._owned_outfit_ids:
+            self._equipped_outfit_id = next(iter(self._owned_outfit_ids))
+        else:
+            self._equipped_outfit_id = next(iter(self._outfits))
+
+        if equipped_weapon_skin and equipped_weapon_skin in self._weapon_skins:
+            self._equipped_weapon_skin_id = equipped_weapon_skin
+        elif self._owned_weapon_skin_ids:
+            self._equipped_weapon_skin_id = next(iter(self._owned_weapon_skin_ids))
+        else:
+            self._equipped_weapon_skin_id = next(iter(self._weapon_skins))
 
     # ------------------------------------------------------------------
     # Default data

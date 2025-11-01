@@ -7,6 +7,42 @@
     <link rel="stylesheet" href="/static/css/app.css" />
   </head>
   <body data-active-view="{{ active_view or 'play' }}">
+    <div id="auth-overlay" class="auth-overlay" hidden>
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button type="button" data-auth-tab="login" class="active">Accedi</button>
+          <button type="button" data-auth-tab="register">Registrati</button>
+        </div>
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <label>
+            Username
+            <input type="text" name="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" required />
+          </label>
+          <button type="submit" class="cta">Entra</button>
+          <p class="auth-error" id="login-error" hidden></p>
+        </form>
+        <form id="register-form" class="auth-form" hidden autocomplete="on">
+          <label>
+            Username
+            <input type="text" name="username" required />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" minlength="6" required />
+          </label>
+          <button type="submit" class="cta">Crea account</button>
+          <p class="auth-error" id="register-error" hidden></p>
+        </form>
+      </div>
+    </div>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand">
@@ -18,7 +54,9 @@
           <a class="nav-btn {% if active_view == 'pass' %}active{% endif %}" data-view="pass" href="/?view=pass">Battle Pass</a>
           <a class="nav-btn {% if active_view == 'locker' %}active{% endif %}" data-view="locker" href="/?view=locker">Armadietto</a>
           <a class="nav-btn {% if active_view == 'shop' %}active{% endif %}" data-view="shop" href="/?view=shop">Negozio</a>
-          <a class="nav-btn {% if active_view == 'profile' %}active{% endif %}" data-view="profile" href="/?view=profile">Profilo</a>
+          <a class="nav-btn {% if active_view == 'stats' %}active{% endif %}" data-view="stats" href="/?view=stats">Statistiche</a>
+          <a class="nav-btn {% if active_view == 'friends' %}active{% endif %}" data-view="friends" href="/?view=friends">Amici</a>
+          <a class="nav-btn {% if active_view == 'settings' %}active{% endif %}" data-view="settings" href="/?view=settings">Impostazioni</a>
         </nav>
         <div class="currencies">
           <span class="currency">⛁ <strong id="currency-credits">{{ lobby.currencies.credits }}</strong></span>
@@ -379,8 +417,8 @@
           </div>
         </section>
 
-        <section class="panel profile-panel" data-view-section="profile" {% if active_view != 'profile' %}hidden{% endif %}>
-          <h2>Profilo</h2>
+        <section class="panel profile-panel" data-view-section="stats" {% if active_view != 'stats' %}hidden{% endif %}>
+          <h2>Statistiche</h2>
           <p class="panel-subtitle">Monitoraggio prestazioni Dropzone X.</p>
           <ul class="profile-stats">
             <li>
@@ -404,6 +442,47 @@
               <strong id="profile-time">{{ (lobby.profile.timePlayedMinutes / 60)|round(1) }} h</strong>
             </li>
           </ul>
+        </section>
+
+        <section class="panel friends-panel" data-view-section="friends" {% if active_view != 'friends' %}hidden{% endif %}>
+          <h2>Amici</h2>
+          <p class="panel-subtitle">Gestisci la tua squadra e invia inviti.</p>
+          <div class="friends-layout">
+            <ul id="friend-list" class="friend-list">
+              {% for friend in lobby.friends %}
+              <li data-username="{{ friend.username }}">
+                <span class="friend-name">{{ friend.username }}</span>
+                <span class="friend-status">{{ friend.status }}</span>
+                <button class="ghost" data-action="remove">Rimuovi</button>
+              </li>
+              {% endfor %}
+            </ul>
+            <form id="friend-form" class="friend-form">
+              <label>
+                Aggiungi amico
+                <input type="text" name="username" placeholder="Username Dropzone" required />
+              </label>
+              <button type="submit" class="cta">Invia richiesta</button>
+              <p id="friend-feedback" class="form-feedback" hidden></p>
+            </form>
+          </div>
+        </section>
+
+        <section class="panel settings-panel" data-view-section="settings" {% if active_view != 'settings' %}hidden{% endif %}>
+          <h2>Impostazioni</h2>
+          <div class="settings-grid">
+            <div class="settings-card">
+              <h3>Account</h3>
+              <p>Email: <strong id="settings-email">{{ lobby.settings.email }}</strong></p>
+              <p>Autenticazione a due fattori: <strong id="settings-2fa">{% if lobby.settings.twoFactor %}Attiva{% else %}Disattivata{% endif %}</strong></p>
+              <p>Newsletter: <strong id="settings-news">{% if lobby.settings.newsletters %}Iscritto{% else %}Non iscritto{% endif %}</strong></p>
+            </div>
+            <div class="settings-card">
+              <h3>Sessione</h3>
+              <button id="logout-button" class="ghost">Esci dall'account</button>
+              <p id="logout-feedback" class="form-feedback" hidden></p>
+            </div>
+          </div>
         </section>
       </main>
 

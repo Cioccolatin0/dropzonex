@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 import random
 import time
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Set
+
+from starlette.websockets import WebSocket
 
 from .cosmetics import CosmeticRepository
 
@@ -35,6 +39,7 @@ GAME_MODES = [
 @dataclass
 class PlayerSession:
     session_id: str
+    user_id: int
     player_id: str
     display_name: str
     joined_at: float
@@ -55,6 +60,7 @@ class Match:
     created_at: float
     capacity: int
     started_at: Optional[float] = None
+    map_layout: Optional[Dict] = None
 
 
 class Matchmaker:
@@ -77,6 +83,7 @@ class Matchmaker:
         self._matches: Dict[str, Match] = {}
         self._lock = asyncio.Lock()
         self._ticker: Optional[asyncio.Task] = None
+        self._subscribers: Dict[str, Set[WebSocket]] = defaultdict(set)
 
     async def start(self) -> None:
         if self._ticker is None:
@@ -89,18 +96,41 @@ class Matchmaker:
                 await self._ticker
             self._ticker = None
 
-    async def enqueue(self, display_name: str) -> PlayerSession:
+    async def enqueue(self, *, user_id: int, display_name: str, cosmetic_profile: Dict) -> PlayerSession:
         session = PlayerSession(
             session_id=str(uuid.uuid4()),
+            user_id=user_id,
             player_id=str(uuid.uuid4()),
             display_name=display_name,
             joined_at=time.time(),
-            cosmetic_profile=self.cosmetics.player_agent_payload(),
+            cosmetic_profile=cosmetic_profile,
         )
         async with self._lock:
             self._sessions[session.session_id] = session
             self._waiting_order.append(session.session_id)
+        await self._notify_sessions(self._waiting_order)
         return session
+
+    async def register_websocket(self, session_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        async with self._lock:
+            if session_id not in self._sessions:
+                payload = {"sessionId": session_id, "status": "closed"}
+                subscribers: List[WebSocket] = []
+            else:
+                self._subscribers[session_id].add(websocket)
+                payload = self._session_payload(self._sessions[session_id])
+                subscribers = [websocket]
+        if payload and subscribers:
+            await self._fanout(session_id, subscribers, payload)
+        elif payload:
+            await websocket.send_json(payload)
+            await websocket.close()
+
+    async def unregister_websocket(self, session_id: str, websocket: WebSocket) -> None:
+        async with self._lock:
+            if session_id in self._subscribers and websocket in self._subscribers[session_id]:
+                self._subscribers[session_id].remove(websocket)
 
     async def get_session(self, session_id: str) -> Optional[PlayerSession]:
         async with self._lock:
@@ -119,6 +149,7 @@ class Matchmaker:
 
             payload = self._serialize_match_locked(match, include_estimate=False, perspective=session)
 
+            affected_sessions: List[str] = []
             for other in self._sessions.values():
                 if other.match_id == match.match_id:
                     if other.session_id == session_id:
@@ -131,8 +162,10 @@ class Matchmaker:
                             perspective=other,
                         )
                     other.last_update = time.time()
+                    affected_sessions.append(other.session_id)
 
             return match
+        await self._notify_sessions(affected_sessions)
 
     async def cancel(self, session_id: str) -> bool:
         async with self._lock:
@@ -141,7 +174,8 @@ class Matchmaker:
                 return False
             with contextlib.suppress(ValueError):
                 self._waiting_order.remove(session_id)
-            return True
+        await self._notify_sessions([session_id])
+        return True
 
     async def _run(self) -> None:
         try:
@@ -167,6 +201,7 @@ class Matchmaker:
                 oldest = ready_sessions[0]
                 if now - oldest.joined_at >= self.max_wait_time:
                     await self._create_match(ready_sessions)
+        await self._notify_sessions(self._waiting_order)
 
     async def _create_match(self, participants: List[PlayerSession]) -> None:
         match_id = str(uuid.uuid4())
@@ -222,6 +257,7 @@ class Matchmaker:
                 bot_member["behavior"] = random.choice(["aggressive", "balanced", "defensive"])
                 squad["members"].append(bot_member)
 
+        map_layout = self._generate_battlefield(len(squads), capacity)
         match = Match(
             match_id=match_id,
             squads=squads,
@@ -229,6 +265,7 @@ class Matchmaker:
             map_name=map_name,
             created_at=time.time(),
             capacity=capacity,
+            map_layout=map_layout,
         )
         self._matches[match_id] = match
 
@@ -238,27 +275,14 @@ class Matchmaker:
                 include_estimate=True,
                 perspective=session,
             )
+        await self._notify_sessions([s.session_id for s in human_sessions])
 
     async def serialize_session(self, session_id: str) -> Optional[Dict]:
         async with self._lock:
             session = self._sessions.get(session_id)
             if not session:
                 return None
-            payload = {
-                "sessionId": session.session_id,
-                "status": session.status,
-                "playerId": session.player_id,
-                "displayName": session.display_name,
-                "squadId": session.squad_id,
-                "cosmetics": session.cosmetic_profile,
-            }
-            if session.status == "waiting":
-                position = self._waiting_order.index(session_id) + 1 if session_id in self._waiting_order else 1
-                payload["queuePosition"] = position
-                payload["playersSearching"] = len(self._waiting_order)
-            if session.match_payload:
-                payload["match"] = session.match_payload
-            return payload
+            return self._session_payload(session)
 
     async def serialize_match(self, match_id: str) -> Optional[Dict]:
         async with self._lock:
@@ -275,6 +299,24 @@ class Matchmaker:
             session = self._sessions.get(session_id)
             return self._serialize_match_locked(match, include_estimate=False, perspective=session)
 
+    def _session_payload(self, session: PlayerSession) -> Dict:
+        payload = {
+            "sessionId": session.session_id,
+            "status": session.status,
+            "playerId": session.player_id,
+            "displayName": session.display_name,
+            "userId": session.user_id,
+            "squadId": session.squad_id,
+            "cosmetics": session.cosmetic_profile,
+        }
+        if session.status == "waiting":
+            position = self._waiting_order.index(session.session_id) + 1 if session.session_id in self._waiting_order else 1
+            payload["queuePosition"] = position
+            payload["playersSearching"] = len(self._waiting_order)
+        if session.match_payload:
+            payload["match"] = session.match_payload
+        return payload
+
     async def lobby_snapshot(self) -> Dict:
         async with self._lock:
             active_matches = len([m for m in self._matches.values() if m.started_at and (time.time() - m.started_at) < 900])
@@ -283,6 +325,21 @@ class Matchmaker:
                 "searching": len(self._waiting_order),
                 "activeMatches": active_matches,
             }
+
+    async def _notify_sessions(self, session_ids: Iterable[str]) -> None:
+        unique_ids = list(dict.fromkeys(session_ids))
+        if not unique_ids:
+            return
+        payloads: List[tuple[str, List[WebSocket], Dict]] = []
+        async with self._lock:
+            for session_id in unique_ids:
+                session = self._sessions.get(session_id)
+                payload = self._session_payload(session) if session else {"sessionId": session_id, "status": "closed"}
+                subscribers = list(self._subscribers.get(session_id, []))
+                if subscribers:
+                    payloads.append((session_id, subscribers, payload))
+        for session_id, subscribers, payload in payloads:
+            await self._fanout(session_id, subscribers, payload)
 
     def _serialize_match_locked(
         self,
@@ -312,7 +369,80 @@ class Matchmaker:
             payload["playerAgent"] = self.cosmetics.player_agent_payload()
         if include_estimate:
             payload["estimatedStart"] = time.time() + 3
+        if match.map_layout:
+            payload["mapLayout"] = match.map_layout
         return payload
+
+    async def _fanout(self, session_id: str, subscribers: List[WebSocket], payload: Dict) -> None:
+        stale: List[WebSocket] = []
+        for socket in subscribers:
+            try:
+                await socket.send_json(payload)
+            except Exception:
+                stale.append(socket)
+        if stale:
+            async with self._lock:
+                for socket in stale:
+                    if session_id in self._subscribers:
+                        self._subscribers[session_id].discard(socket)
+
+    def _generate_battlefield(self, squad_count: int, capacity: int) -> Dict:
+        radius = 950.0
+        spawn_points: List[Dict] = []
+        for index in range(capacity):
+            angle = (2 * math.pi * index) / capacity
+            spawn_points.append(
+                {
+                    "id": f"spawn-{index}",
+                    "position": [round(math.cos(angle) * radius, 2), 0.0, round(math.sin(angle) * radius, 2)],
+                    "rotation": [0.0, round(-angle, 3), 0.0],
+                    "squad": index % max(1, squad_count),
+                }
+            )
+
+        loot_zones = [
+            {
+                "name": "Cupola Zenith",
+                "position": [0.0, 0.0, 0.0],
+                "radius": 140.0,
+                "rarity": "legendary",
+            },
+            {
+                "name": "Mercato Orbitale",
+                "position": [420.0, 0.0, -260.0],
+                "radius": 110.0,
+                "rarity": "rare",
+            },
+            {
+                "name": "Hangar Prisma",
+                "position": [-360.0, 0.0, 340.0],
+                "radius": 130.0,
+                "rarity": "epic",
+            },
+        ]
+
+        safe_phases = []
+        base_radius = 1100.0
+        center = [0.0, 0.0]
+        for phase in range(1, 6):
+            shrink_radius = round(base_radius - phase * 160, 2)
+            center_offset_x = round(center[0] + random.uniform(-120, 120), 2)
+            center_offset_z = round(center[1] + random.uniform(-120, 120), 2)
+            safe_phases.append(
+                {
+                    "phase": phase,
+                    "radius": max(220.0, shrink_radius),
+                    "duration": 120 + phase * 30,
+                    "center": [center_offset_x, 0.0, center_offset_z],
+                }
+            )
+
+        return {
+            "spawnPoints": spawn_points,
+            "lootZones": loot_zones,
+            "safePhases": safe_phases,
+            "biome": "Apex Expanse",
+        }
 
     def _build_member_entry(self, *, display_name: str, is_bot: bool, player_id: str, cosmetic: Dict) -> Dict:
         entry = {

@@ -68,11 +68,27 @@ const profileWins = document.getElementById("profile-wins");
 const profileWinrate = document.getElementById("profile-winrate");
 const profileKdr = document.getElementById("profile-kdr");
 const profileTime = document.getElementById("profile-time");
+const friendList = document.getElementById("friend-list");
+const friendForm = document.getElementById("friend-form");
+const friendFeedback = document.getElementById("friend-feedback");
+const settingsEmail = document.getElementById("settings-email");
+const settings2fa = document.getElementById("settings-2fa");
+const settingsNews = document.getElementById("settings-news");
+const logoutButton = document.getElementById("logout-button");
+const logoutFeedback = document.getElementById("logout-feedback");
 const navButtons = Array.from(document.querySelectorAll(".nav-btn"));
 const viewSections = Array.from(document.querySelectorAll("[data-view-section]"));
-const allowedViews = new Set(["play", "pass", "locker", "shop", "profile"]);
+const allowedViews = new Set(["play", "pass", "locker", "shop", "stats", "friends", "settings"]);
+const authOverlay = document.getElementById("auth-overlay");
+const authTabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
+const loginForm = document.getElementById("login-form");
+const registerForm = document.getElementById("register-form");
+const loginError = document.getElementById("login-error");
+const registerError = document.getElementById("register-error");
 
 const state = {
+  token: window.localStorage.getItem("dropzonex-token"),
+  profile: null,
   sessionId: null,
   pollHandle: null,
   latestSession: null,
@@ -81,7 +97,189 @@ const state = {
   shop: null,
   selectedTierId: null,
   selectedShopItemId: null,
+  matchmakingSocket: null,
 };
+
+async function apiFetch(url, options = {}) {
+  const init = { ...options };
+  const existing = options.headers ? new Headers(options.headers) : new Headers();
+  if (state.token) {
+    existing.set("Authorization", `Bearer ${state.token}`);
+  }
+  init.headers = existing;
+  const response = await fetch(url, init);
+  if (response.status === 401) {
+    handleUnauthorized();
+  }
+  return response;
+}
+
+function showAuthOverlay(mode = "login") {
+  if (authOverlay) {
+    authOverlay.hidden = false;
+  }
+  setAuthMode(mode);
+}
+
+function hideAuthOverlay() {
+  if (authOverlay) {
+    authOverlay.hidden = true;
+  }
+  if (loginError) loginError.hidden = true;
+  if (registerError) registerError.hidden = true;
+}
+
+function setAuthMode(mode) {
+  authTabs.forEach((tab) => {
+    const active = tab.dataset.authTab === mode;
+    tab.classList.toggle("active", active);
+  });
+  if (loginForm) loginForm.hidden = mode !== "login";
+  if (registerForm) registerForm.hidden = mode !== "register";
+}
+
+function handleUnauthorized() {
+  window.localStorage.removeItem("dropzonex-token");
+  state.token = null;
+  state.profile = null;
+  resetQueue();
+  hydrateLobby(initialLobby);
+  showAuthOverlay("login");
+}
+
+async function loadProfile() {
+  if (!state.token) return null;
+  const response = await apiFetch("/api/auth/me");
+  if (!response.ok) {
+    throw new Error(`Profilo non disponibile: ${response.status}`);
+  }
+  const profile = await response.json();
+  state.profile = profile;
+  return profile;
+}
+
+async function fetchLobbyData() {
+  if (!state.token) return null;
+  const response = await apiFetch("/api/lobby");
+  if (!response.ok) {
+    throw new Error(`Lobby non disponibile: ${response.status}`);
+  }
+  const lobby = await response.json();
+  state.lobby = lobby;
+  return lobby;
+}
+
+async function authenticateAndLoad() {
+  if (!state.token) {
+    hydrateLobby(initialLobby);
+    showAuthOverlay("login");
+    return;
+  }
+  try {
+    await loadProfile();
+    const lobby = await fetchLobbyData();
+    hydrateLobby(lobby || initialLobby);
+    hideAuthOverlay();
+  } catch (error) {
+    console.error("Impossibile caricare i dati dell'account", error);
+    handleUnauthorized();
+  }
+}
+
+function initialiseAuth() {
+  authTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      setAuthMode(tab.dataset.authTab || "login");
+    });
+  });
+
+  if (loginForm) {
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(loginForm);
+      const payload = {
+        username: formData.get("username"),
+        password: formData.get("password"),
+      };
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Login fallito: ${response.status}`);
+        }
+        const data = await response.json();
+        state.token = data.accessToken;
+        window.localStorage.setItem("dropzonex-token", state.token);
+        state.profile = data.profile;
+        if (loginError) loginError.hidden = true;
+        await authenticateAndLoad();
+      } catch (error) {
+        console.error("Errore login", error);
+        if (loginError) {
+          loginError.textContent = "Credenziali non valide";
+          loginError.hidden = false;
+        }
+      }
+    });
+  }
+
+  if (registerForm) {
+    registerForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(registerForm);
+      const payload = {
+        username: formData.get("username"),
+        email: formData.get("email"),
+        password: formData.get("password"),
+      };
+      try {
+        const response = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Registrazione fallita: ${response.status}`);
+        }
+        const data = await response.json();
+        state.token = data.accessToken;
+        window.localStorage.setItem("dropzonex-token", state.token);
+        state.profile = data.profile;
+        if (registerError) registerError.hidden = true;
+        await authenticateAndLoad();
+      } catch (error) {
+        console.error("Errore registrazione", error);
+        if (registerError) {
+          registerError.textContent = "Registrazione non riuscita";
+          registerError.hidden = false;
+        }
+      }
+    });
+  }
+
+  if (logoutButton) {
+    logoutButton.addEventListener("click", async () => {
+      try {
+        if (state.token) {
+          await apiFetch("/api/auth/logout", { method: "POST" });
+        }
+      } catch (error) {
+        console.warn("Logout non completato", error);
+      }
+      handleUnauthorized();
+      if (logoutFeedback) {
+        logoutFeedback.textContent = "Sessione terminata";
+        logoutFeedback.hidden = false;
+        window.setTimeout(() => {
+          logoutFeedback.hidden = true;
+        }, 2000);
+      }
+    });
+  }
+}
 
 function formatBattlePassReward(tier) {
   if (!tier) return "-";
@@ -133,16 +331,18 @@ function setQueueSearching() {
 }
 
 function initialise() {
-  hydrateLobby(initialLobby);
+  initialiseAuth();
   bindNavigation();
   bindMatchmaking();
   bindCosmetics();
   bindBattlePass();
   bindShop();
+  bindFriends();
   const url = new URL(window.location.href);
   const requestedView = url.searchParams.get("view") || document.body.dataset.activeView;
   toggleView(requestedView);
-  window.setInterval(refreshLobby, 10000);
+  authenticateAndLoad();
+  window.setInterval(() => refreshLobby({ silent: true }), 10000);
 }
 
 function bindNavigation() {
@@ -191,7 +391,7 @@ function bindMatchmaking() {
     if (!state.sessionId) return;
     cancelButton.disabled = true;
     try {
-      await fetch(`/api/session/${state.sessionId}/cancel`, {
+      await apiFetch(`/api/session/${state.sessionId}/cancel`, {
         method: "POST",
       });
     } catch (error) {
@@ -255,23 +455,32 @@ function hydrateLobby(lobby) {
   populateAnimationSelect(lobby.cosmetics?.animationSets || [], lobby.hero?.outfit?.animationSetId);
   renderShop(state.shop, state.selectedShopItemId);
   renderProfile(lobby.profile || {});
+  renderFriends(lobby.friends || []);
+  renderSettings(lobby.settings || {});
 }
 
-async function refreshLobby() {
+async function refreshLobby(options = {}) {
+  if (!state.token) return;
   try {
-    const response = await fetch("/api/lobby");
+    const response = await apiFetch("/api/lobby");
     if (!response.ok) return;
     const payload = await response.json();
     hydrateLobby(payload);
   } catch (error) {
-    console.warn("Backend non raggiungibile", error);
+    if (!options.silent) {
+      console.warn("Backend non raggiungibile", error);
+    }
   }
 }
 
 async function startQueue() {
+  if (!state.token) {
+    showAuthOverlay("login");
+    return;
+  }
   setQueueSearching();
   try {
-    const response = await fetch("/api/queue", {
+    const response = await apiFetch("/api/queue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ displayName: heroName.textContent }),
@@ -283,6 +492,7 @@ async function startQueue() {
     state.sessionId = session.sessionId;
     state.latestSession = session;
     renderSession(session);
+    connectMatchmakingSocket(session.sessionId);
     beginPolling();
   } catch (error) {
     console.error("Errore durante il matchmaking", error);
@@ -298,7 +508,7 @@ function beginPolling() {
   state.pollHandle = window.setInterval(async () => {
     if (!state.sessionId) return;
     try {
-      const response = await fetch(`/api/session/${state.sessionId}`);
+      const response = await apiFetch(`/api/session/${state.sessionId}`);
       if (!response.ok) {
         throw new Error(`Session lookup failed: ${response.status}`);
       }
@@ -320,6 +530,42 @@ function stopPolling() {
   if (state.pollHandle) {
     window.clearInterval(state.pollHandle);
     state.pollHandle = null;
+  }
+}
+
+function connectMatchmakingSocket(sessionId) {
+  if (!state.token) return;
+  closeMatchmakingSocket();
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${protocol}://${window.location.host}/ws/matchmaking/${sessionId}?token=${state.token}`);
+  socket.addEventListener("message", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      state.latestSession = payload;
+      renderSession(payload);
+    } catch (error) {
+      console.warn("Messaggio matchmaking non valido", error);
+    }
+  });
+  socket.addEventListener("close", () => {
+    if (state.matchmakingSocket === socket) {
+      state.matchmakingSocket = null;
+    }
+  });
+  socket.addEventListener("error", () => {
+    console.warn("WebSocket matchmaking in errore");
+  });
+  state.matchmakingSocket = socket;
+}
+
+function closeMatchmakingSocket() {
+  if (state.matchmakingSocket) {
+    try {
+      state.matchmakingSocket.close();
+    } catch (error) {
+      console.warn("Errore chiusura WebSocket", error);
+    }
+    state.matchmakingSocket = null;
   }
 }
 
@@ -347,6 +593,7 @@ function renderSession(session) {
     playButton.disabled = false;
     cancelButton.hidden = true;
     renderSquad(session.match ? extractSquadMembers(session.match, session) : null);
+    closeMatchmakingSocket();
     state.sessionId = null;
   }
 }
@@ -407,7 +654,7 @@ async function startMatch() {
   playButton.disabled = true;
   playButton.textContent = "Avvio match...";
   try {
-    const response = await fetch(`/api/session/${state.sessionId}/start`, {
+    const response = await apiFetch(`/api/session/${state.sessionId}/start`, {
       method: "POST",
     });
     if (!response.ok) {
@@ -431,6 +678,7 @@ async function startMatch() {
 
 function resetQueue() {
   stopPolling();
+  closeMatchmakingSocket();
   state.sessionId = null;
   state.latestSession = null;
   playButton.disabled = false;
@@ -599,7 +847,7 @@ function bindBattlePass() {
 
 async function claimBattlePassTier(tierId, unlock) {
   try {
-    const response = await fetch("/api/battle-pass/claim", {
+    const response = await apiFetch("/api/battle-pass/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tierId, unlock }),
@@ -772,7 +1020,7 @@ function bindCosmetics() {
       const formData = new FormData(outfitImportForm);
       const payload = Object.fromEntries(formData.entries());
       try {
-        const response = await fetch("/api/cosmetics/outfits", {
+        const response = await apiFetch("/api/cosmetics/outfits", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -793,7 +1041,7 @@ function bindCosmetics() {
       const power = parseFloat(payload.powerModifier || "0");
       payload.powerModifier = power / 100;
       try {
-        const response = await fetch("/api/cosmetics/weapon-skins", {
+        const response = await apiFetch("/api/cosmetics/weapon-skins", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -810,7 +1058,7 @@ function bindCosmetics() {
 
 async function equipCosmetics(payload) {
   try {
-    const response = await fetch("/api/locker/equip", {
+    const response = await apiFetch("/api/locker/equip", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -819,6 +1067,66 @@ async function equipCosmetics(payload) {
     await refreshLobby();
   } catch (error) {
     console.error("Impossibile aggiornare l'armadietto", error);
+  }
+}
+
+function bindFriends() {
+  if (friendForm) {
+    friendForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!state.token) {
+        showAuthOverlay("login");
+        return;
+      }
+      const formData = new FormData(friendForm);
+      const username = formData.get("username");
+      try {
+        const response = await apiFetch("/api/friends", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username }),
+        });
+        if (!response.ok) {
+          throw new Error(`Add friend failed: ${response.status}`);
+        }
+        friendForm.reset();
+        if (friendFeedback) {
+          friendFeedback.textContent = "Richiesta inviata";
+          friendFeedback.hidden = false;
+        }
+        await refreshLobby();
+      } catch (error) {
+        console.error("Impossibile inviare la richiesta", error);
+        if (friendFeedback) {
+          friendFeedback.textContent = "Impossibile inviare la richiesta";
+          friendFeedback.hidden = false;
+        }
+      }
+      window.setTimeout(() => {
+        if (friendFeedback) friendFeedback.hidden = true;
+      }, 2000);
+    });
+  }
+
+  if (friendList) {
+    friendList.addEventListener("click", async (event) => {
+      const removeButton = event.target.closest("[data-action='remove']");
+      if (!removeButton) return;
+      const item = removeButton.closest("[data-username]");
+      if (!item) return;
+      const username = item.dataset.username;
+      try {
+        const response = await apiFetch(`/api/friends/${encodeURIComponent(username)}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          throw new Error(`Remove friend failed: ${response.status}`);
+        }
+        await refreshLobby();
+      } catch (error) {
+        console.error("Impossibile rimuovere l'amico", error);
+      }
+    });
   }
 }
 
@@ -955,7 +1263,7 @@ function bindShop() {
 
 async function purchaseShopItem(itemId) {
   try {
-    const response = await fetch("/api/shop/purchase", {
+    const response = await apiFetch("/api/shop/purchase", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ itemId }),
@@ -982,6 +1290,40 @@ function renderProfile(profile) {
     const minutes = profile.timePlayedMinutes ?? 0;
     profileTime.textContent = `${Math.round((minutes / 60) * 10) / 10} h`;
   }
+}
+
+function renderFriends(friends) {
+  if (!friendList) return;
+  friendList.innerHTML = "";
+  if (!friends.length) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "Nessun amico registrato";
+    friendList.appendChild(empty);
+    return;
+  }
+  friends.forEach((friend) => {
+    const item = document.createElement("li");
+    item.dataset.username = friend.username;
+    const name = document.createElement("span");
+    name.className = "friend-name";
+    name.textContent = friend.username;
+    const status = document.createElement("span");
+    status.className = "friend-status";
+    status.textContent = friend.status;
+    const remove = document.createElement("button");
+    remove.className = "ghost";
+    remove.dataset.action = "remove";
+    remove.textContent = "Rimuovi";
+    item.append(name, status, remove);
+    friendList.appendChild(item);
+  });
+}
+
+function renderSettings(settings) {
+  if (settingsEmail) settingsEmail.textContent = settings.email || "-";
+  if (settings2fa) settings2fa.textContent = settings.twoFactor ? "Attiva" : "Disattivata";
+  if (settingsNews) settingsNews.textContent = settings.newsletters ? "Iscritto" : "Non iscritto";
 }
 
 initialise();
