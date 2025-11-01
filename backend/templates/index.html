@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dropzone X</title>
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">Δ</span>
+          <span class="brand-title">Dropzone X</span>
+        </div>
+        <nav class="primary-nav">
+          <button class="nav-btn" data-view="play">Gioca</button>
+          <button class="nav-btn" data-view="pass">Battle Pass</button>
+          <button class="nav-btn" data-view="locker">Armadietto</button>
+          <button class="nav-btn" data-view="shop">Negozio</button>
+          <button class="nav-btn" data-view="profile">Profilo</button>
+        </nav>
+        <div class="currencies">
+          <span class="currency">⛁ <strong id="currency-credits">{{ lobby.currencies.credits }}</strong></span>
+          <span class="currency">⚡ <strong id="currency-flux">{{ lobby.currencies.flux }}</strong></span>
+          <span class="currency">◇ <strong id="currency-tokens">{{ lobby.currencies.tokens }}</strong></span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="hero-card">
+          <div class="hero-portrait">
+            <div class="hero-thumbnail"></div>
+          </div>
+          <div class="hero-info">
+            <h1 id="hero-name">{{ lobby.hero.displayName }}</h1>
+            <p class="level">Livello {{ lobby.hero.level }}</p>
+            <div class="xp-bar">
+              <div class="xp-fill" style="width: {{ lobby.hero.xpProgress * 100 }}%"></div>
+            </div>
+            <p class="mode-highlight">Modalità consigliata: <strong id="highlight-mode">{{ lobby.dailyHighlight.mode }}</strong> · <span id="highlight-map">{{ lobby.dailyHighlight.map }}</span></p>
+            <div class="matchmaking-card">
+              <p id="queue-status">Pronto a lanciarti.</p>
+              <button id="play-button" class="cta">Avvia Matchmaking</button>
+              <button id="cancel-button" class="ghost" hidden>Annulla</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="activity-panel">
+          <h2>Stato Rete</h2>
+          <ul class="activity-grid">
+            <li>
+              <span class="label">Giocatori online</span>
+              <strong id="stat-online">{{ lobby.activity.onlinePlayers }}</strong>
+            </li>
+            <li>
+              <span class="label">In ricerca</span>
+              <strong id="stat-searching">{{ lobby.activity.searching }}</strong>
+            </li>
+            <li>
+              <span class="label">Match attivi</span>
+              <strong id="stat-active">{{ lobby.activity.activeMatches }}</strong>
+            </li>
+          </ul>
+
+          <h2>Squadra</h2>
+          <div id="squad" class="squad-list">
+            <p>Nessuna sessione attiva.</p>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-pass">
+          <h2>Battle Pass</h2>
+          <p>Livello {{ lobby.battlePass.level }} · Progressione {{ (lobby.battlePass.progress * 100)|round(0) }}%</p>
+          <p>Completa missioni giornaliere per sbloccare ricompense esclusive.</p>
+        </section>
+
+        <section class="panel" id="panel-locker" hidden>
+          <h2>Armadietto</h2>
+          <p>Personalizza il tuo equipaggiamento cosmetico.</p>
+        </section>
+
+        <section class="panel" id="panel-shop" hidden>
+          <h2>Negozio</h2>
+          <p>Offerte giornaliere disponibili più tardi.</p>
+        </section>
+
+        <section class="panel" id="panel-profile" hidden>
+          <h2>Profilo</h2>
+          <p>Statistiche e progressi globali.</p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>Backend online · matchmaking automatizzato con bot se necessario.</span>
+      </footer>
+    </div>
+
+    <script id="initial-data" type="application/json">{{ lobby | tojson }}</script>
+    <script src="/static/js/app.js" type="module"></script>
+  </body>
+</html>

@@ -104,6 +104,15 @@ class Matchmaker:
             session.last_update = time.time()
             return match
 
+    async def cancel(self, session_id: str) -> bool:
+        async with self._lock:
+            session = self._sessions.pop(session_id, None)
+            if not session:
+                return False
+            with contextlib.suppress(ValueError):
+                self._waiting_order.remove(session_id)
+            return True
+
     async def _run(self) -> None:
         try:
             while True:
