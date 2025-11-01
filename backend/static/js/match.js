@@ -1,142 +1,742 @@
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { PointerLockControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/PointerLockControls.js";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+
 const matchDataElement = document.getElementById("match-data");
 const payload = matchDataElement ? JSON.parse(matchDataElement.textContent) : null;
 
 const statusLabel = document.getElementById("match-status");
 const timerLabel = document.getElementById("match-timer");
+const objectiveLabel = document.getElementById("objective-label");
 const eventFeed = document.getElementById("event-feed");
-const roster = document.getElementById("squad-roster");
+const scoreboardList = document.getElementById("scoreboard");
+const enemyRemainingLabel = document.getElementById("enemy-remaining");
+const allyScoreLabel = document.getElementById("ally-score");
+const enemyScoreLabel = document.getElementById("enemy-score");
+const healthLabel = document.getElementById("health-label");
+const healthBar = document.getElementById("health-bar");
+const shieldBar = document.getElementById("shield-bar");
+const weaponNameLabel = document.getElementById("weapon-name");
+const weaponAmmoLabel = document.getElementById("weapon-ammo");
+const hitMarker = document.getElementById("hit-marker");
+const damageIndicator = document.getElementById("damage-indicator");
+const introOverlay = document.getElementById("intro-overlay");
+const missionReport = document.getElementById("mission-report");
+const missionOutcome = document.getElementById("mission-outcome");
+const missionExitButton = document.getElementById("mission-exit");
 const returnButton = document.getElementById("return-button");
 const canvas = document.getElementById("match-canvas");
 
-let timerHandle = null;
-let eventHandle = null;
-let phaseIndex = 0;
-
 const MATCH_PHASES = [
-  "Drop in corso",
-  "Rilevamento nemici",
-  "Contestazione obiettivi",
-  "Spinta finale",
+  "Briefing tattico",
+  "Ingaggio iniziale",
+  "Controllo siti",
+  "Retake finale",
   "Debriefing",
 ];
 
-function init() {
-  if (!payload || !payload.match) {
-    statusLabel.textContent = "Sessione non disponibile";
+const ENEMY_ARCHETYPES = [
+  { codename: "Spectre Cell", behavior: "aggressive", damage: 18 },
+  { codename: "Shadow Lance", behavior: "balanced", damage: 14 },
+  { codename: "Nova Drift", behavior: "aggressive", damage: 16 },
+  { codename: "Helix Ward", behavior: "defensive", damage: 12 },
+  { codename: "Pulse Hydra", behavior: "balanced", damage: 15 },
+  { codename: "Rift Phantom", behavior: "aggressive", damage: 17 },
+  { codename: "Zero Shade", behavior: "balanced", damage: 14 },
+  { codename: "Ion Seraph", behavior: "defensive", damage: 13 },
+];
+
+const scoreboardState = new Map();
+let phaseIndex = 0;
+let timerHandle = null;
+
+function addFeedEntry(message) {
+  if (!eventFeed) return;
+  const item = document.createElement("li");
+  item.textContent = message;
+  eventFeed.prepend(item);
+  while (eventFeed.children.length > 8) {
+    eventFeed.removeChild(eventFeed.lastElementChild);
+  }
+}
+
+function initialiseScoreboard() {
+  if (!payload?.match || !scoreboardList) return;
+  Array.from(scoreboardList.children).forEach((row) => {
+    const playerId = row.dataset.player;
+    if (!playerId) return;
+    const statFields = {
+      kills: row.querySelector('[data-field="kills"]'),
+      deaths: row.querySelector('[data-field="deaths"]'),
+      status: row.querySelector('[data-field="status"]'),
+    };
+    scoreboardState.set(playerId, {
+      element: row,
+      stats: { kills: 0, deaths: 0 },
+      fields: statFields,
+    });
+  });
+}
+
+function updateScoreboard(playerId, { kills, deaths, status }) {
+  const entry = scoreboardState.get(playerId);
+  if (!entry) return;
+  if (typeof kills === "number" && entry.fields.kills) {
+    entry.fields.kills.textContent = String(kills);
+    entry.stats.kills = kills;
+  }
+  if (typeof deaths === "number" && entry.fields.deaths) {
+    entry.fields.deaths.textContent = String(deaths);
+    entry.stats.deaths = deaths;
+  }
+  if (typeof status === "string" && entry.fields.status) {
+    entry.fields.status.textContent = status;
+  }
+  if (status) {
+    const lowered = status.toLowerCase();
+    if (lowered.includes("down")) {
+      entry.element.classList.add("down");
+    } else {
+      entry.element.classList.remove("down");
+    }
+  }
+}
+
+function updateTimer(startedAt) {
+  const startMillis = startedAt ? startedAt * 1000 : Date.now();
+  const baseTime = startMillis;
+  const tick = () => {
+    const delta = Date.now() - baseTime;
+    const totalSeconds = Math.floor(delta / 1000);
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    if (timerLabel) timerLabel.textContent = `${minutes}:${seconds}`;
+    const phase = MATCH_PHASES[Math.min(MATCH_PHASES.length - 1, Math.floor(totalSeconds / 60))];
+    if (phase !== MATCH_PHASES[phaseIndex]) {
+      phaseIndex = MATCH_PHASES.indexOf(phase);
+      if (statusLabel) statusLabel.textContent = `Operazione attiva · ${phase}`;
+      if (objectiveLabel) objectiveLabel.textContent = phase;
+      addFeedEntry(`Nuova fase: ${phase}.`);
+    }
+  };
+  tick();
+  timerHandle = window.setInterval(tick, 1000);
+}
+
+function stopTimer() {
+  if (timerHandle) {
+    window.clearInterval(timerHandle);
+    timerHandle = null;
+  }
+}
+
+class EnemyAgent {
+  constructor(game, profile, mesh) {
+    this.game = game;
+    this.profile = profile;
+    this.mesh = mesh;
+    this.mesh.userData.enemy = this;
+    this.mesh.position.copy(profile.spawn.clone());
+    this.mesh.position.y = 1.2;
+    this.health = 120;
+    this.cooldown = 1.4 + Math.random();
+    this.reloadTimer = 0;
+  }
+
+  update(delta) {
+    const playerPosition = this.game.controls.getObject().position;
+    const toPlayer = new THREE.Vector3().subVectors(playerPosition, this.mesh.position);
+    const distance = toPlayer.length();
+    const behavior = this.profile.behavior;
+    const speed = behavior === "aggressive" ? 6.5 : behavior === "defensive" ? 3.6 : 4.6;
+
+    if (distance > 3) {
+      toPlayer.normalize();
+      this.mesh.position.addScaledVector(toPlayer, speed * delta);
+      this.mesh.position.y = 1.2;
+    }
+
+    this.mesh.lookAt(playerPosition.x, this.mesh.position.y, playerPosition.z);
+
+    this.cooldown -= delta;
+    if (distance < 28 && this.cooldown <= 0) {
+      this.cooldown = behavior === "aggressive" ? 0.9 : behavior === "defensive" ? 1.6 : 1.2;
+      const burst = behavior === "defensive" ? 2 : 3;
+      this.game.inflictPlayerDamage(this.profile.damage * burst * 0.5);
+      this.game.showDamage(`${this.profile.codename} ti colpisce`);
+      addFeedEntry(`${this.profile.codename} apre il fuoco.`);
+    }
+  }
+
+  takeDamage(amount, attackerId) {
+    this.health -= amount;
+    if (this.health <= 0) {
+      this.die(attackerId);
+    }
+  }
+
+  die(attackerId) {
+    this.game.scene.remove(this.mesh);
+    this.mesh.geometry?.dispose?.();
+    this.mesh.material?.dispose?.();
+    this.game.onEnemyDown(this, attackerId);
+  }
+}
+
+class ShooterGame {
+  constructor(canvas, payload) {
+    this.canvas = canvas;
+    this.payload = payload;
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x050813);
+    this.scene.fog = new THREE.FogExp2(0x050813, 0.03);
+
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+
+    this.camera = new THREE.PerspectiveCamera(74, canvas.clientWidth / canvas.clientHeight, 0.1, 200);
+    this.camera.position.set(0, 1.6, 6);
+
+    this.controls = new PointerLockControls(this.camera, canvas);
+    this.clock = new THREE.Clock();
+    this.raycaster = new THREE.Raycaster();
+    this.moveForward = false;
+    this.moveBackward = false;
+    this.moveLeft = false;
+    this.moveRight = false;
+    this.isSprinting = false;
+    this.canJump = false;
+    this.velocity = new THREE.Vector3();
+    this.direction = new THREE.Vector3();
+
+    this.player = {
+      id: payload?.session?.playerId || (payload?.match?.squad?.find((m) => !m.isBot)?.playerId ?? "player-local"),
+      name: payload?.session?.displayName || payload?.match?.squad?.find((m) => !m.isBot)?.displayName || "Operatore",
+      health: 100,
+      shield: 50,
+      maxHealth: 100,
+      maxShield: 50,
+      deaths: 0,
+      kills: 0,
+    };
+
+    this.weapon = {
+      name: "Photon Vandal",
+      clipSize: 30,
+      ammo: 30,
+      reserve: 120,
+      fireRate: 0.14,
+      damage: 36,
+      lastShot: 0,
+      reloadTime: 1.6,
+      reloading: false,
+      reloadTimer: 0,
+      triggerHeld: false,
+    };
+
+    this.assets = {
+      agentPrototype: null,
+    };
+
+    this.enemies = [];
+    this.enemyCount = ENEMY_ARCHETYPES.length;
+    this.missionEnded = false;
+    this.hitMarkerTimeout = null;
+    this.damageTimeout = null;
+
+    this.animate = this.animate.bind(this);
+    this.onResize = this.onResize.bind(this);
+    this.handleClick = this.handleClick.bind(this);
+    this.handlePointerLockChange = this.handlePointerLockChange.bind(this);
+  }
+
+  async boot() {
+    this.configureLights();
+    this.buildArena();
+    await this.prepareAssets();
+    this.spawnFriendlies();
+    this.spawnEnemies();
+    this.bindInput();
+    this.animate();
+    window.addEventListener("resize", this.onResize);
+    document.addEventListener("pointerlockchange", this.handlePointerLockChange);
+    addFeedEntry("Connessione alla simulazione tattica completata.");
+    if (statusLabel) statusLabel.textContent = "Operazione attiva · Briefing tattico";
+    if (objectiveLabel) objectiveLabel.textContent = "Briefing tattico";
+    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.enemyCount);
+    if (allyScoreLabel) allyScoreLabel.textContent = String(this.player.kills);
+    if (enemyScoreLabel) enemyScoreLabel.textContent = "0";
+    this.updateWeaponUI();
+    this.updateVitals();
+    updateScoreboard(this.player.id, { status: "Operativo", kills: this.player.kills, deaths: this.player.deaths });
+  }
+
+  configureLights() {
+    const ambient = new THREE.AmbientLight(0x4b5a7a, 0.6);
+    this.scene.add(ambient);
+    const keyLight = new THREE.DirectionalLight(0x9adfff, 0.7);
+    keyLight.position.set(10, 18, 6);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    this.scene.add(keyLight);
+    const rim = new THREE.SpotLight(0xff5f87, 0.35, 80, Math.PI / 6, 0.4, 1);
+    rim.position.set(-18, 24, -6);
+    this.scene.add(rim);
+  }
+
+  buildArena() {
+    const floorGeometry = new THREE.PlaneGeometry(80, 80);
+    const floorMaterial = new THREE.MeshStandardMaterial({
+      color: 0x121a33,
+      metalness: 0.1,
+      roughness: 0.8,
+    });
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    this.scene.add(floor);
+
+    const grid = new THREE.GridHelper(80, 80, 0x4bbad5, 0x274a69);
+    grid.position.y = 0.01;
+    this.scene.add(grid);
+
+    const walls = [
+      { w: 80, h: 8, d: 1, x: 0, y: 4, z: -40 },
+      { w: 80, h: 8, d: 1, x: 0, y: 4, z: 40 },
+      { w: 1, h: 8, d: 80, x: -40, y: 4, z: 0 },
+      { w: 1, h: 8, d: 80, x: 40, y: 4, z: 0 },
+    ];
+    walls.forEach((wall) => {
+      const geometry = new THREE.BoxGeometry(wall.w, wall.h, wall.d);
+      const material = new THREE.MeshStandardMaterial({ color: 0x0c152d, metalness: 0.2, roughness: 0.75 });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(wall.x, wall.y, wall.z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    });
+
+    const coverMaterial = new THREE.MeshStandardMaterial({ color: 0x1c2f59, metalness: 0.15, roughness: 0.7 });
+    const obstacleGeometries = [
+      new THREE.BoxGeometry(8, 4, 4),
+      new THREE.BoxGeometry(6, 5, 3),
+      new THREE.BoxGeometry(5, 3, 5),
+    ];
+    const obstaclePositions = [
+      new THREE.Vector3(-12, 2, -6),
+      new THREE.Vector3(14, 2.5, -2),
+      new THREE.Vector3(-5, 1.5, 12),
+      new THREE.Vector3(10, 1.5, 18),
+      new THREE.Vector3(-18, 2, 16),
+    ];
+
+    obstaclePositions.forEach((position, index) => {
+      const geometry = obstacleGeometries[index % obstacleGeometries.length];
+      const mesh = new THREE.Mesh(geometry, coverMaterial.clone());
+      mesh.position.copy(position);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    });
+  }
+
+  async prepareAssets() {
+    const loader = new GLTFLoader();
+    try {
+      const gltf = await loader.loadAsync(
+        "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models@master/2.0/Soldier/glTF/Soldier.glb"
+      );
+      const root = gltf.scene;
+      root.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          child.material = child.material.clone();
+          child.material.metalness = 0.25;
+          child.material.roughness = 0.55;
+        }
+      });
+      root.scale.setScalar(1.6);
+      this.assets.agentPrototype = root;
+    } catch (error) {
+      console.warn("Impossibile caricare il modello GLTF", error);
+      this.assets.agentPrototype = this.createFallbackAgent();
+    }
+  }
+
+  createFallbackAgent() {
+    const group = new THREE.Group();
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x61f0ff, metalness: 0.4, roughness: 0.4 });
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.6, 1.6, 6, 12), bodyMaterial);
+    torso.castShadow = true;
+    torso.receiveShadow = true;
+    group.add(torso);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), bodyMaterial.clone());
+    helmet.position.y = 1.3;
+    group.add(helmet);
+    return group;
+  }
+
+  spawnFriendlies() {
+    if (!this.payload?.match?.squad) return;
+    this.payload.match.squad.forEach((member, index) => {
+      if (member.playerId === this.player.id) return;
+      const mesh = this.cloneAgentMesh(false);
+      mesh.position.set(-6 + index * 3, 1.2, -10 - index * 2);
+      mesh.rotation.y = Math.PI;
+      this.scene.add(mesh);
+      updateScoreboard(member.playerId, { status: "Operativo", kills: 0, deaths: 0 });
+    });
+  }
+
+  spawnEnemies() {
+    const radius = 20;
+    ENEMY_ARCHETYPES.forEach((profile, index) => {
+      const angle = (index / ENEMY_ARCHETYPES.length) * Math.PI * 2;
+      const spawn = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+      const mesh = this.cloneAgentMesh(true);
+      mesh.position.copy(spawn);
+      mesh.rotation.y = angle + Math.PI;
+      mesh.scale.multiplyScalar(1.05);
+      this.scene.add(mesh);
+      const enemy = new EnemyAgent(
+        this,
+        { ...profile, spawn },
+        mesh
+      );
+      this.enemies.push(enemy);
+    });
+    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.enemies.length);
+    addFeedEntry("Cellule nemiche individuate nella zona d'estrazione.");
+  }
+
+  cloneAgentMesh(isEnemy) {
+    const base = this.assets.agentPrototype?.clone(true) || this.createFallbackAgent();
+    base.traverse((child) => {
+      if (child.isMesh) {
+        child.material = child.material.clone();
+        const tint = new THREE.Color(isEnemy ? 0xff5f87 : 0x5fffe8);
+        child.material.color.lerp(tint, 0.8);
+        child.material.emissive = tint.clone().multiplyScalar(isEnemy ? 0.1 : 0.2);
+      }
+    });
+    base.position.y = 1.2;
+    return base;
+  }
+
+  bindInput() {
+    document.addEventListener("keydown", (event) => this.onKeyDown(event));
+    document.addEventListener("keyup", (event) => this.onKeyUp(event));
+    document.addEventListener("mousedown", (event) => {
+      if (!this.controls.isLocked) return;
+      if (event.button === 0) this.shoot();
+    });
+    document.addEventListener("mouseup", () => {
+      this.weapon.triggerHeld = false;
+    });
+    this.canvas.addEventListener("click", this.handleClick);
+    if (missionExitButton) {
+      missionExitButton.addEventListener("click", () => {
+        window.location.href = "/";
+      });
+    }
+    if (returnButton) {
+      returnButton.addEventListener("click", () => {
+        window.location.href = "/";
+      });
+    }
+  }
+
+  handleClick() {
+    if (!this.controls.isLocked) {
+      this.controls.lock();
+    }
+  }
+
+  handlePointerLockChange() {
+    if (document.pointerLockElement === this.canvas) {
+      if (introOverlay) introOverlay.hidden = true;
+      this.weapon.triggerHeld = false;
+    } else if (!this.missionEnded) {
+      if (introOverlay) introOverlay.hidden = false;
+    }
+  }
+
+  onKeyDown(event) {
+    switch (event.code) {
+      case "KeyW":
+        this.moveForward = true;
+        break;
+      case "KeyS":
+        this.moveBackward = true;
+        break;
+      case "KeyA":
+        this.moveLeft = true;
+        break;
+      case "KeyD":
+        this.moveRight = true;
+        break;
+      case "ShiftLeft":
+      case "ShiftRight":
+        this.isSprinting = true;
+        break;
+      case "Space":
+        if (this.canJump) {
+          this.velocity.y += 8;
+          this.canJump = false;
+        }
+        break;
+      case "KeyR":
+        this.reload();
+        break;
+      default:
+        break;
+    }
+  }
+
+  onKeyUp(event) {
+    switch (event.code) {
+      case "KeyW":
+        this.moveForward = false;
+        break;
+      case "KeyS":
+        this.moveBackward = false;
+        break;
+      case "KeyA":
+        this.moveLeft = false;
+        break;
+      case "KeyD":
+        this.moveRight = false;
+        break;
+      case "ShiftLeft":
+      case "ShiftRight":
+        this.isSprinting = false;
+        break;
+      default:
+        break;
+    }
+  }
+
+  reload() {
+    if (this.weapon.reloading || this.weapon.ammo >= this.weapon.clipSize || this.weapon.reserve <= 0) {
+      return;
+    }
+    this.weapon.reloading = true;
+    this.weapon.reloadTimer = this.weapon.reloadTime;
+    addFeedEntry("Ricarica in corso...");
+  }
+
+  shoot() {
+    const now = this.clock.elapsedTime;
+    if (this.weapon.reloading) return;
+    if (this.weapon.ammo <= 0) {
+      this.reload();
+      return;
+    }
+    if (now - this.weapon.lastShot < this.weapon.fireRate) {
+      return;
+    }
+    this.weapon.lastShot = now;
+    this.weapon.ammo -= 1;
+    this.updateWeaponUI();
+
+    const origin = this.controls.getObject().position.clone();
+    origin.y -= 0.05;
+    const direction = new THREE.Vector3();
+    this.camera.getWorldDirection(direction);
+    this.raycaster.set(origin, direction);
+    const intersections = this.raycaster.intersectObjects(
+      this.enemies.map((enemy) => enemy.mesh),
+      false
+    );
+    if (intersections.length > 0) {
+      const [{ object }] = intersections;
+      const enemy = object.parent?.userData?.enemy || object.userData?.enemy;
+      if (enemy) {
+        enemy.takeDamage(this.weapon.damage + Math.random() * 12, this.player.id);
+        this.showHitMarker("COLPO");
+        addFeedEntry(`${this.player.name} colpisce ${enemy.profile.codename}.`);
+      }
+    }
+  }
+
+  showHitMarker(message) {
+    if (!hitMarker) return;
+    hitMarker.textContent = message;
+    hitMarker.hidden = false;
+    if (this.hitMarkerTimeout) window.clearTimeout(this.hitMarkerTimeout);
+    this.hitMarkerTimeout = window.setTimeout(() => {
+      hitMarker.hidden = true;
+    }, 320);
+  }
+
+  showDamage(message) {
+    if (!damageIndicator) return;
+    damageIndicator.textContent = message;
+    damageIndicator.hidden = false;
+    if (this.damageTimeout) window.clearTimeout(this.damageTimeout);
+    this.damageTimeout = window.setTimeout(() => {
+      damageIndicator.hidden = true;
+    }, 420);
+  }
+
+  inflictPlayerDamage(amount) {
+    if (this.missionEnded) return;
+    const shieldDamage = Math.min(this.player.shield, amount);
+    this.player.shield -= shieldDamage;
+    const healthDamage = amount - shieldDamage;
+    if (healthDamage > 0) {
+      this.player.health = Math.max(0, this.player.health - healthDamage);
+    }
+    this.updateVitals();
+    if (this.player.health <= 0) {
+      this.player.deaths += 1;
+      updateScoreboard(this.player.id, {
+        deaths: this.player.deaths,
+        status: "Down",
+      });
+      this.endMission(false);
+    }
+  }
+
+  onEnemyDown(enemy, attackerId) {
+    this.enemies = this.enemies.filter((e) => e !== enemy);
+    this.enemyCount = this.enemies.length;
+    if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.enemyCount);
+    if (attackerId === this.player.id) {
+      this.player.kills += 1;
+      allyScoreLabel.textContent = String(this.player.kills);
+      updateScoreboard(this.player.id, {
+        kills: this.player.kills,
+      });
+    }
+    const defeated = ENEMY_ARCHETYPES.length - this.enemyCount;
+    enemyScoreLabel.textContent = String(defeated);
+    addFeedEntry(`${enemy.profile.codename} neutralizzato.`);
+    if (this.enemyCount <= 0) {
+      this.endMission(true);
+    }
+  }
+
+  updateWeaponUI() {
+    if (weaponNameLabel) weaponNameLabel.textContent = this.weapon.name.toUpperCase();
+    if (weaponAmmoLabel) weaponAmmoLabel.textContent = `${this.weapon.ammo} / ${this.weapon.reserve}`;
+  }
+
+  updateVitals() {
+    if (healthLabel) healthLabel.textContent = `${Math.round(this.player.health)}+${Math.round(this.player.shield)}`;
+    if (healthBar) {
+      const ratio = Math.max(0, Math.min(1, this.player.health / this.player.maxHealth));
+      healthBar.style.width = `${ratio * 100}%`;
+    }
+    if (shieldBar) {
+      const ratio = Math.max(0, Math.min(1, this.player.shield / this.player.maxShield));
+      shieldBar.style.width = `${ratio * 100}%`;
+    }
+  }
+
+  handleReload(delta) {
+    if (!this.weapon.reloading) return;
+    this.weapon.reloadTimer -= delta;
+    if (this.weapon.reloadTimer <= 0) {
+      const needed = this.weapon.clipSize - this.weapon.ammo;
+      const toLoad = Math.min(needed, this.weapon.reserve);
+      this.weapon.ammo += toLoad;
+      this.weapon.reserve -= toLoad;
+      this.weapon.reloading = false;
+      this.updateWeaponUI();
+      addFeedEntry("Ricarica completata.");
+    }
+  }
+
+  updateMovement(delta) {
+    const damping = 12.0;
+    const speed = this.isSprinting ? 12 : 8;
+    this.velocity.x -= this.velocity.x * damping * delta;
+    this.velocity.z -= this.velocity.z * damping * delta;
+    this.velocity.y -= 30 * delta;
+
+    this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
+    this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
+    this.direction.normalize();
+
+    if (this.moveForward || this.moveBackward) this.velocity.z -= this.direction.z * speed * delta;
+    if (this.moveLeft || this.moveRight) this.velocity.x -= this.direction.x * speed * delta;
+
+    this.controls.moveRight(-this.velocity.x * delta);
+    this.controls.moveForward(-this.velocity.z * delta);
+
+    const position = this.controls.getObject().position;
+    position.y += this.velocity.y * delta;
+    if (position.y < 1.6) {
+      this.velocity.y = 0;
+      position.y = 1.6;
+      this.canJump = true;
+    }
+  }
+
+  animate() {
+    if (this.missionEnded) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    requestAnimationFrame(this.animate);
+    const delta = this.clock.getDelta();
+    this.handleReload(delta);
+    this.updateMovement(delta);
+    this.enemies.forEach((enemy) => enemy.update(delta));
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  onResize() {
+    const width = this.canvas.clientWidth;
+    const height = this.canvas.clientHeight;
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height, false);
+  }
+
+  endMission(victory) {
+    if (this.missionEnded) return;
+    this.missionEnded = true;
+    stopTimer();
+    this.controls.unlock();
+    if (missionReport) missionReport.hidden = false;
+    if (introOverlay) introOverlay.hidden = true;
+    if (missionOutcome) {
+      missionOutcome.textContent = victory
+        ? `Missione completata · ${this.player.kills} eliminazioni`
+        : "Missione fallita · Operatore a terra";
+    }
+    addFeedEntry(victory ? "Tutte le minacce neutralizzate." : "L'operatore è stato neutralizzato.");
+  }
+}
+
+function initialiseMission() {
+  if (!payload?.match || !canvas) {
+    if (statusLabel) statusLabel.textContent = "Sessione non disponibile";
     return;
   }
-  statusLabel.textContent = `In missione · ${MATCH_PHASES[0]}`;
-  initialiseTimer();
-  populateRoster(payload.match, payload.session);
-  populateCanvas();
-  eventHandle = window.setInterval(pushEvent, 3500);
-  returnButton.addEventListener("click", () => {
-    window.location.href = "/";
-  });
+  initialiseScoreboard();
+  updateTimer(payload.match.startedAt);
+  const game = new ShooterGame(canvas, payload);
+  game
+    .boot()
+    .then(() => {
+      introOverlay?.addEventListener("click", () => {
+        if (!game.controls.isLocked) game.controls.lock();
+      });
+    })
+    .catch((error) => {
+      console.error("Impossibile avviare la simulazione", error);
+      statusLabel.textContent = "Errore simulazione";
+      addFeedEntry("Errore nell'inizializzazione del match. Riprova.");
+    });
 }
-
-function initialiseTimer() {
-  const startedAt = payload.match.startedAt ? payload.match.startedAt * 1000 : Date.now();
-  const offset = Date.now() - startedAt;
-  updateTimer(offset);
-  timerHandle = window.setInterval(() => {
-    const delta = Date.now() - startedAt;
-    updateTimer(delta);
-  }, 1000);
-}
-
-function updateTimer(ms) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
-  const seconds = String(totalSeconds % 60).padStart(2, "0");
-  timerLabel.textContent = `${minutes}:${seconds}`;
-
-  const phase = MATCH_PHASES[Math.min(MATCH_PHASES.length - 1, Math.floor(totalSeconds / 60))];
-  if (phase !== MATCH_PHASES[phaseIndex]) {
-    phaseIndex = MATCH_PHASES.indexOf(phase);
-    statusLabel.textContent = `In missione · ${phase}`;
-  }
-}
-
-function populateRoster(match, session) {
-  if (!match || !roster) return;
-
-  const activePlayerId = session?.playerId;
-  Array.from(roster.children).forEach((entry) => {
-    if (!activePlayerId) return;
-    if (entry.dataset.player === activePlayerId) {
-      entry.classList.add("active");
-    }
-  });
-}
-
-function populateCanvas() {
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const { width, height } = canvas;
-  ctx.clearRect(0, 0, width, height);
-
-  const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, "rgba(95, 255, 232, 0.35)");
-  gradient.addColorStop(1, "rgba(96, 105, 255, 0.25)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([8, 8]);
-  ctx.beginPath();
-  ctx.arc(width / 2, height / 2, Math.min(width, height) / 3, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  const squad = payload.match?.squad || [];
-  squad.forEach((member, index) => {
-    const angle = (Math.PI * 2 * index) / squad.length;
-    const radius = Math.min(width, height) / 3;
-    const x = width / 2 + Math.cos(angle) * radius;
-    const y = height / 2 + Math.sin(angle) * radius;
-
-    ctx.beginPath();
-    ctx.arc(x, y, 22, 0, Math.PI * 2);
-    ctx.fillStyle = member.isBot ? "rgba(255, 125, 90, 0.9)" : "rgba(95, 255, 232, 0.9)";
-    ctx.fill();
-
-    ctx.fillStyle = "#0b1226";
-    ctx.font = "600 14px Rajdhani";
-    ctx.textAlign = "center";
-    ctx.fillText(member.displayName.slice(0, 12), x, y + 40);
-  });
-}
-
-function pushEvent() {
-  const squad = payload.match?.squad || [];
-  if (!squad.length) return;
-  const actor = squad[Math.floor(Math.random() * squad.length)];
-  const actions = actor.isBot
-    ? ["analizza la zona", "aggira gli avversari", "fornisce supporto"]
-    : ["conquista il punto", "abbatte un avversario", "attiva il faro di drop"];
-  const action = actions[Math.floor(Math.random() * actions.length)];
-  const li = document.createElement("li");
-  li.textContent = `${actor.displayName} ${action}.`;
-  eventFeed.prepend(li);
-
-  while (eventFeed.children.length > 8) {
-    eventFeed.removeChild(eventFeed.lastChild);
-  }
-}
-
-window.addEventListener("pageshow", () => {
-  if (!timerHandle && payload?.match) {
-    initialiseTimer();
-  }
-});
 
 window.addEventListener("beforeunload", () => {
-  if (timerHandle) window.clearInterval(timerHandle);
-  if (eventHandle) window.clearInterval(eventHandle);
+  stopTimer();
 });
 
-init();
+initialiseMission();
