@@ -1,6 +1,7 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { PointerLockControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/PointerLockControls.js";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/SkeletonUtils.js";
 
 const matchDataElement = document.getElementById("match-data");
 const payload = matchDataElement ? JSON.parse(matchDataElement.textContent) : null;
@@ -131,10 +132,11 @@ function stopTimer() {
 }
 
 class EnemyAgent {
-  constructor(game, profile, mesh) {
+  constructor(game, profile, rig) {
     this.game = game;
     this.profile = profile;
-    this.mesh = mesh;
+    this.rig = rig;
+    this.mesh = rig.mesh;
     this.mesh.userData.enemy = this;
     this.mesh.position.copy(profile.spawn.clone());
     this.mesh.position.y = 1.2;
@@ -154,6 +156,11 @@ class EnemyAgent {
       toPlayer.normalize();
       this.mesh.position.addScaledVector(toPlayer, speed * delta);
       this.mesh.position.y = 1.2;
+      this.rig.play("run");
+    }
+
+    if (distance <= 3) {
+      this.rig.play("idle");
     }
 
     this.mesh.lookAt(playerPosition.x, this.mesh.position.y, playerPosition.z);
@@ -179,6 +186,7 @@ class EnemyAgent {
     this.game.scene.remove(this.mesh);
     this.mesh.geometry?.dispose?.();
     this.mesh.material?.dispose?.();
+    this.game.unregisterRig(this.rig);
     this.game.onEnemyDown(this, attackerId);
   }
 }
@@ -210,16 +218,28 @@ class ShooterGame {
     this.velocity = new THREE.Vector3();
     this.direction = new THREE.Vector3();
 
+    const squadMembers =
+      (payload?.match?.playerSquad?.members || payload?.match?.squads?.[0]?.members || []).slice();
+    const activeMember =
+      squadMembers.find((member) => member.playerId === payload?.session?.playerId) ||
+      squadMembers.find((member) => !member.isBot) ||
+      squadMembers[0] ||
+      null;
+
     this.player = {
-      id: payload?.session?.playerId || (payload?.match?.squad?.find((m) => !m.isBot)?.playerId ?? "player-local"),
-      name: payload?.session?.displayName || payload?.match?.squad?.find((m) => !m.isBot)?.displayName || "Operatore",
+      id: payload?.session?.playerId || activeMember?.playerId || "player-local",
+      name: payload?.session?.displayName || activeMember?.displayName || "Operatore",
       health: 100,
       shield: 50,
       maxHealth: 100,
       maxShield: 50,
       deaths: 0,
       kills: 0,
+      cosmetics: activeMember?.cosmetics || payload?.session?.cosmetics || null,
     };
+
+    this.agentConfig = payload?.match?.playerAgent || this.player.cosmetics || activeMember?.cosmetics || null;
+    this.animationBindings = (this.agentConfig && this.agentConfig.animationBindings) || {};
 
     this.weapon = {
       name: "Photon Vandal",
@@ -237,6 +257,7 @@ class ShooterGame {
 
     this.assets = {
       agentPrototype: null,
+      animations: [],
     };
 
     this.enemies = [];
@@ -244,6 +265,7 @@ class ShooterGame {
     this.missionEnded = false;
     this.hitMarkerTimeout = null;
     this.damageTimeout = null;
+    this.rigs = [];
 
     this.animate = this.animate.bind(this);
     this.onResize = this.onResize.bind(this);
@@ -344,9 +366,10 @@ class ShooterGame {
   async prepareAssets() {
     const loader = new GLTFLoader();
     try {
-      const gltf = await loader.loadAsync(
-        "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models@master/2.0/Soldier/glTF/Soldier.glb"
-      );
+      const modelUrl =
+        this.agentConfig?.modelUrl ||
+        "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models@master/2.0/Soldier/glTF/Soldier.glb";
+      const gltf = await loader.loadAsync(modelUrl);
       const root = gltf.scene;
       root.traverse((child) => {
         if (child.isMesh) {
@@ -359,9 +382,11 @@ class ShooterGame {
       });
       root.scale.setScalar(1.6);
       this.assets.agentPrototype = root;
+      this.assets.animations = gltf.animations || [];
     } catch (error) {
       console.warn("Impossibile caricare il modello GLTF", error);
       this.assets.agentPrototype = this.createFallbackAgent();
+      this.assets.animations = [];
     }
   }
 
@@ -379,13 +404,16 @@ class ShooterGame {
   }
 
   spawnFriendlies() {
-    if (!this.payload?.match?.squad) return;
-    this.payload.match.squad.forEach((member, index) => {
+    const squadMembers = this.payload?.match?.playerSquad?.members || [];
+    squadMembers.forEach((member, index) => {
       if (member.playerId === this.player.id) return;
-      const mesh = this.cloneAgentMesh(false);
+      const rig = this.createAgentRig({ isEnemy: false, cosmetic: member.cosmetics });
+      const mesh = rig.mesh;
       mesh.position.set(-6 + index * 3, 1.2, -10 - index * 2);
       mesh.rotation.y = Math.PI;
       this.scene.add(mesh);
+      rig.play("idle");
+      this.registerRig(rig);
       updateScoreboard(member.playerId, { status: "Operativo", kills: 0, deaths: 0 });
     });
   }
@@ -395,34 +423,73 @@ class ShooterGame {
     ENEMY_ARCHETYPES.forEach((profile, index) => {
       const angle = (index / ENEMY_ARCHETYPES.length) * Math.PI * 2;
       const spawn = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-      const mesh = this.cloneAgentMesh(true);
+      const rig = this.createAgentRig({ isEnemy: true });
+      const mesh = rig.mesh;
       mesh.position.copy(spawn);
       mesh.rotation.y = angle + Math.PI;
       mesh.scale.multiplyScalar(1.05);
       this.scene.add(mesh);
-      const enemy = new EnemyAgent(
-        this,
-        { ...profile, spawn },
-        mesh
-      );
+      rig.play("idle");
+      this.registerRig(rig);
+      const enemy = new EnemyAgent(this, { ...profile, spawn }, rig);
       this.enemies.push(enemy);
     });
     if (enemyRemainingLabel) enemyRemainingLabel.textContent = String(this.enemies.length);
     addFeedEntry("Cellule nemiche individuate nella zona d'estrazione.");
   }
 
-  cloneAgentMesh(isEnemy) {
-    const base = this.assets.agentPrototype?.clone(true) || this.createFallbackAgent();
+  createAgentRig({ isEnemy, cosmetic }) {
+    const base = this.assets.agentPrototype ? cloneSkinned(this.assets.agentPrototype) : this.createFallbackAgent();
+    base.position.y = 1.2;
+    const rig = {
+      mesh: base,
+      mixer: null,
+      actions: {},
+      current: null,
+      play: (name) => {
+        if (!rig.mixer || !rig.actions[name]) return;
+        if (rig.current === name) return;
+        Object.entries(rig.actions).forEach(([key, action]) => {
+          if (key === name) {
+            action.reset().fadeIn(0.2).play();
+          } else {
+            action.fadeOut(0.2);
+          }
+        });
+        rig.current = name;
+      },
+      update: (delta) => {
+        if (rig.mixer) rig.mixer.update(delta);
+      },
+    };
+
+    if (this.assets.animations && this.assets.animations.length > 0) {
+      rig.mixer = new THREE.AnimationMixer(base);
+      Object.entries(this.animationBindings || {}).forEach(([state, clipName]) => {
+        const clip = THREE.AnimationClip.findByName(this.assets.animations, clipName);
+        if (!clip) return;
+        const action = rig.mixer.clipAction(clip);
+        action.clampWhenFinished = true;
+        action.enable = true;
+        rig.actions[state] = action;
+      });
+    }
+
     base.traverse((child) => {
       if (child.isMesh) {
         child.material = child.material.clone();
         const tint = new THREE.Color(isEnemy ? 0xff5f87 : 0x5fffe8);
-        child.material.color.lerp(tint, 0.8);
-        child.material.emissive = tint.clone().multiplyScalar(isEnemy ? 0.1 : 0.2);
+        child.material.color.lerp(tint, 0.5);
+        child.material.metalness = 0.25;
+        child.material.roughness = 0.55;
       }
     });
-    base.position.y = 1.2;
-    return base;
+
+    if (cosmetic?.thumbnailUrl) {
+      base.userData.cosmetic = cosmetic;
+    }
+
+    return rig;
   }
 
   bindInput() {
@@ -686,7 +753,19 @@ class ShooterGame {
     this.handleReload(delta);
     this.updateMovement(delta);
     this.enemies.forEach((enemy) => enemy.update(delta));
+    this.rigs.forEach((rig) => rig.update(delta));
     this.renderer.render(this.scene, this.camera);
+  }
+
+  registerRig(rig) {
+    if (!rig) return;
+    if (!this.rigs.includes(rig)) {
+      this.rigs.push(rig);
+    }
+  }
+
+  unregisterRig(rig) {
+    this.rigs = this.rigs.filter((entry) => entry !== rig);
   }
 
   onResize() {

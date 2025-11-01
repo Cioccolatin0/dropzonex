@@ -30,10 +30,16 @@
 
       <main class="match-grid">
         <aside class="intel-panel" aria-label="Intel squadra">
-          <h2>Squadra strike</h2>
           {% set active_player = session.playerId if session else None %}
+          {% set player_squad = match.playerSquad if match.playerSquad else (match.squads[0] if match.squads else None) %}
+          <div class="squad-heading" {% if player_squad and player_squad.teamColor %}style="--squad-color: {{ player_squad.teamColor }}"{% endif %}>
+            <h2>Squadra Strike</h2>
+            {% if player_squad %}
+            <span class="squad-chip">{{ player_squad.squadId }}</span>
+            {% endif %}
+          </div>
           <ul id="scoreboard" class="scoreboard">
-            {% for member in match.squad %}
+            {% for member in player_squad.members if player_squad %}
             <li
               class="scoreboard-row{% if member.isBot %} bot{% endif %}{% if active_player and member.playerId == active_player %} active{% endif %}"
               data-player="{{ member.playerId }}"

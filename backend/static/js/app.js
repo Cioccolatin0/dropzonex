@@ -32,6 +32,19 @@ const lockerPickaxe = document.getElementById("locker-pickaxe");
 const lockerGlider = document.getElementById("locker-glider");
 const lockerWrap = document.getElementById("locker-wrap");
 const lockerEmotes = document.getElementById("locker-emotes");
+const lockerOutfitThumb = document.getElementById("locker-outfit-thumb");
+const lockerWeaponThumb = document.getElementById("locker-weapon-thumb");
+const lockerWrapBonus = document.getElementById("locker-wrap-bonus");
+const lockerOutfitRarity = document.getElementById("locker-outfit-rarity");
+const animationName = document.getElementById("animation-name");
+const animationDescription = document.getElementById("animation-description");
+const outfitList = document.getElementById("outfit-list");
+const weaponSkinList = document.getElementById("weapon-skin-list");
+const outfitCount = document.getElementById("outfit-count");
+const weaponCount = document.getElementById("weapon-count");
+const outfitImportForm = document.getElementById("outfit-import-form");
+const weaponImportForm = document.getElementById("weapon-import-form");
+const animationSelect = document.getElementById("outfit-animation-set");
 const shopFeatured = document.getElementById("shop-featured");
 const shopDaily = document.getElementById("shop-daily");
 const profileMatches = document.getElementById("profile-matches");
@@ -47,6 +60,7 @@ const state = {
   sessionId: null,
   pollHandle: null,
   latestSession: null,
+  cosmetics: null,
 };
 
 function setQueueSearching() {
@@ -62,6 +76,7 @@ function initialise() {
   hydrateLobby(initialLobby);
   bindNavigation();
   bindMatchmaking();
+  bindCosmetics();
   const url = new URL(window.location.href);
   const requestedView = url.searchParams.get("view") || document.body.dataset.activeView;
   toggleView(requestedView);
@@ -126,6 +141,7 @@ function bindMatchmaking() {
 
 function hydrateLobby(lobby) {
   if (!lobby) return;
+  state.cosmetics = lobby.cosmetics || null;
   heroName.textContent = lobby.hero.displayName;
   if (heroTitle) {
     heroTitle.textContent = lobby.hero.title;
@@ -169,7 +185,10 @@ function hydrateLobby(lobby) {
     passProgressLabel.textContent = `${Math.round((lobby.battlePass.progress || 0) * 100)}% completato`;
   }
   renderPassTrack(lobby.battlePass.rewards || []);
-  renderLocker(lobby.locker || {});
+  renderLocker(lobby.locker || {}, lobby.cosmetics || {}, lobby.hero || {});
+  renderOutfitList(lobby.cosmetics?.outfits || [], lobby.hero?.outfit?.id);
+  renderWeaponSkinList(lobby.cosmetics?.weaponSkins || [], lobby.hero?.weaponSkin?.id);
+  populateAnimationSelect(lobby.cosmetics?.animationSets || [], lobby.hero?.outfit?.animationSetId);
   renderShopList(shopFeatured, lobby.shop?.featured || []);
   renderShopList(shopDaily, lobby.shop?.daily || []);
   renderProfile(lobby.profile || {});
@@ -258,15 +277,30 @@ function renderSession(session) {
     playButton.disabled = false;
     cancelButton.hidden = false;
     cancelButton.disabled = false;
-    renderSquad(session.match.squad);
+    renderSquad(extractSquadMembers(session.match, session));
   } else if (session.status === "playing") {
     queueStatus.textContent = "Sessione avviata. Buona fortuna!";
     playButton.textContent = "Avvia Matchmaking";
     playButton.disabled = false;
     cancelButton.hidden = true;
-    renderSquad(session.match ? session.match.squad : null);
+    renderSquad(session.match ? extractSquadMembers(session.match, session) : null);
     state.sessionId = null;
   }
+}
+
+function extractSquadMembers(match, session) {
+  if (!match) return null;
+  if (match.playerSquad?.members) {
+    return match.playerSquad.members;
+  }
+  if (session?.squadId && Array.isArray(match.squads)) {
+    const squad = match.squads.find((group) => group.squadId === session.squadId);
+    if (squad) return squad.members;
+  }
+  if (Array.isArray(match.squads) && match.squads.length > 0) {
+    return match.squads[0].members;
+  }
+  return match.squad || null;
 }
 
 function renderSquad(squad) {
@@ -287,6 +321,12 @@ function renderSquad(squad) {
     badge.textContent = member.isBot ? "BOT" : "PLAYER";
 
     item.appendChild(name);
+    if (member.cosmetics?.outfitId) {
+      const detail = document.createElement("span");
+      detail.className = "cosmetic-tag";
+      detail.textContent = member.cosmetics.name ?? "Skin";
+      item.appendChild(detail);
+    }
     item.appendChild(badge);
     squadContainer.appendChild(item);
   });
@@ -353,12 +393,33 @@ function renderPassTrack(rewards) {
   });
 }
 
-function renderLocker(locker) {
-  if (lockerOutfit) lockerOutfit.textContent = locker.outfit ?? "-";
+function renderLocker(locker, cosmetics, hero) {
+  if (lockerOutfit) lockerOutfit.textContent = locker.outfit ?? hero?.outfit?.name ?? "-";
   if (lockerBackbling) lockerBackbling.textContent = locker.backbling ?? "-";
   if (lockerPickaxe) lockerPickaxe.textContent = locker.pickaxe ?? "-";
   if (lockerGlider) lockerGlider.textContent = locker.glider ?? "-";
-  if (lockerWrap) lockerWrap.textContent = locker.wrap ?? "-";
+  if (lockerWrap) lockerWrap.textContent = locker.wrap ?? hero?.weaponSkin?.name ?? "-";
+  if (lockerOutfitThumb && (hero?.outfit?.thumbnailUrl || cosmetics?.equippedOutfit?.thumbnailUrl)) {
+    lockerOutfitThumb.src = hero?.outfit?.thumbnailUrl || cosmetics.equippedOutfit.thumbnailUrl;
+  }
+  if (lockerWeaponThumb && (hero?.weaponSkin?.thumbnailUrl || cosmetics?.equippedWeaponSkin?.thumbnailUrl)) {
+    lockerWeaponThumb.src = hero?.weaponSkin?.thumbnailUrl || cosmetics.equippedWeaponSkin.thumbnailUrl;
+  }
+  if (lockerWrapBonus) {
+    const modifier = hero?.weaponSkin?.powerModifier ?? cosmetics?.equippedWeaponSkin?.powerModifier ?? 0;
+    lockerWrapBonus.textContent = `+${Math.round(modifier * 1000) / 10}% potenza`;
+  }
+  if (lockerOutfitRarity) {
+    lockerOutfitRarity.textContent = hero?.outfit?.rarity || cosmetics?.equippedOutfit?.rarity || "";
+  }
+  if (animationName) {
+    const animationId = hero?.outfit?.animationSetId || cosmetics?.equippedOutfit?.animationSetId;
+    const animation = (cosmetics?.animationSets || []).find((item) => item.id === animationId);
+    animationName.textContent = animation?.name || "Animazioni personalizzate";
+    if (animationDescription) {
+      animationDescription.textContent = animation?.description || "Importa una skin per collegare automaticamente le animazioni.";
+    }
+  }
   if (lockerEmotes) {
     lockerEmotes.innerHTML = "";
     (locker.emotes || []).forEach((emote) => {
@@ -366,6 +427,161 @@ function renderLocker(locker) {
       li.textContent = emote;
       lockerEmotes.appendChild(li);
     });
+  }
+  if (outfitCount) outfitCount.textContent = String((cosmetics?.outfits || []).length);
+  if (weaponCount) weaponCount.textContent = String((cosmetics?.weaponSkins || []).length);
+}
+
+function renderOutfitList(outfits, equippedId) {
+  if (!outfitList) return;
+  outfitList.innerHTML = "";
+  outfits.forEach((outfit) => {
+    const item = document.createElement("li");
+    item.className = `cosmetic-item${equippedId && equippedId === outfit.id ? " equipped" : ""}`;
+    item.dataset.outfitId = outfit.id;
+
+    const preview = document.createElement("img");
+    preview.src = outfit.thumbnailUrl;
+    preview.alt = outfit.name;
+
+    const details = document.createElement("div");
+    details.className = "cosmetic-details";
+    const title = document.createElement("strong");
+    title.textContent = outfit.name;
+    const rarity = document.createElement("span");
+    rarity.textContent = outfit.rarity;
+    details.appendChild(title);
+    details.appendChild(rarity);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "equip-btn";
+    button.dataset.equipOutfit = outfit.id;
+    button.textContent = equippedId && equippedId === outfit.id ? "Equipaggiata" : "Equipaggia";
+
+    item.appendChild(preview);
+    item.appendChild(details);
+    item.appendChild(button);
+    outfitList.appendChild(item);
+  });
+}
+
+function renderWeaponSkinList(weaponSkins, equippedId) {
+  if (!weaponSkinList) return;
+  weaponSkinList.innerHTML = "";
+  weaponSkins.forEach((skin) => {
+    const item = document.createElement("li");
+    item.className = `cosmetic-item${equippedId && equippedId === skin.id ? " equipped" : ""}`;
+    item.dataset.weaponId = skin.id;
+
+    const preview = document.createElement("img");
+    preview.src = skin.thumbnailUrl;
+    preview.alt = skin.name;
+
+    const details = document.createElement("div");
+    details.className = "cosmetic-details";
+    const title = document.createElement("strong");
+    title.textContent = skin.name;
+    const rarity = document.createElement("span");
+    rarity.textContent = skin.rarity;
+    details.appendChild(title);
+    details.appendChild(rarity);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "equip-btn";
+    button.dataset.equipWeapon = skin.id;
+    button.textContent = equippedId && equippedId === skin.id ? "Equipaggiata" : "Equipaggia";
+
+    item.appendChild(preview);
+    item.appendChild(details);
+    item.appendChild(button);
+    weaponSkinList.appendChild(item);
+  });
+}
+
+function populateAnimationSelect(animationSets, selectedId) {
+  if (!animationSelect) return;
+  animationSelect.innerHTML = "";
+  animationSets.forEach((animation) => {
+    const option = document.createElement("option");
+    option.value = animation.id;
+    option.textContent = animation.name;
+    if (selectedId && selectedId === animation.id) option.selected = true;
+    animationSelect.appendChild(option);
+  });
+}
+
+function bindCosmetics() {
+  if (outfitList) {
+    outfitList.addEventListener("click", async (event) => {
+      const trigger = event.target.closest("[data-equip-outfit]");
+      if (!trigger) return;
+      const outfitId = trigger.dataset.equipOutfit;
+      await equipCosmetics({ outfitId });
+    });
+  }
+  if (weaponSkinList) {
+    weaponSkinList.addEventListener("click", async (event) => {
+      const trigger = event.target.closest("[data-equip-weapon]");
+      if (!trigger) return;
+      const weaponSkinId = trigger.dataset.equipWeapon;
+      await equipCosmetics({ weaponSkinId });
+    });
+  }
+  if (outfitImportForm) {
+    outfitImportForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(outfitImportForm);
+      const payload = Object.fromEntries(formData.entries());
+      try {
+        const response = await fetch("/api/cosmetics/outfits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(`Import outfit failed: ${response.status}`);
+        outfitImportForm.reset();
+        await refreshLobby();
+      } catch (error) {
+        console.error("Impossibile importare la skin", error);
+      }
+    });
+  }
+  if (weaponImportForm) {
+    weaponImportForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(weaponImportForm);
+      const payload = Object.fromEntries(formData.entries());
+      const power = parseFloat(payload.powerModifier || "0");
+      payload.powerModifier = power / 100;
+      try {
+        const response = await fetch("/api/cosmetics/weapon-skins", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(`Import weapon skin failed: ${response.status}`);
+        weaponImportForm.reset();
+        await refreshLobby();
+      } catch (error) {
+        console.error("Impossibile importare la skin arma", error);
+      }
+    });
+  }
+}
+
+async function equipCosmetics(payload) {
+  try {
+    const response = await fetch("/api/locker/equip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(`Equip failed ${response.status}`);
+    await refreshLobby();
+  } catch (error) {
+    console.error("Impossibile aggiornare l'armadietto", error);
   }
 }
 

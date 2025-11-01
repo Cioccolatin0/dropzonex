@@ -106,6 +106,42 @@
   color: var(--text-muted);
 }
 
+.squad-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(92, 150, 255, 0.18);
+}
+
+.squad-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #f2f6ff;
+}
+
+.squad-heading::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  margin-left: 1rem;
+  background: linear-gradient(90deg, var(--squad-color, rgba(86, 140, 255, 0.8)), rgba(8, 15, 30, 0));
+  border-radius: 999px;
+}
+
+.squad-chip {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(86, 140, 255, 0.22);
+  border: 1px solid rgba(125, 186, 255, 0.35);
+  text-transform: uppercase;
+}
+
 .scoreboard {
   list-style: none;
   margin: 1.2rem 0 0;
@@ -117,7 +153,7 @@
 
 .scoreboard-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(2, auto) auto;
+  grid-template-columns: minmax(0, 1fr) auto repeat(2, auto) auto;
   gap: 0.75rem;
   align-items: center;
   padding: 0.9rem 1rem;

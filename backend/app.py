@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .cosmetics import CosmeticRepository
 from .matchmaker import Matchmaker
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,7 +29,8 @@ app.add_middleware(
 )
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
-matchmaker = Matchmaker()
+cosmetics = CosmeticRepository()
+matchmaker = Matchmaker(cosmetics=cosmetics)
 
 
 @app.on_event("startup")
@@ -55,6 +57,54 @@ async def landing(request: Request) -> HTMLResponse:
 @app.get("/api/lobby")
 async def lobby() -> Dict:
     return await _build_lobby_payload()
+
+
+@app.get("/api/cosmetics/outfits")
+async def outfits() -> Dict:
+    return {"outfits": cosmetics.list_outfits()}
+
+
+@app.post("/api/cosmetics/outfits")
+async def import_outfit(payload: Dict) -> Dict:
+    try:
+        outfit = cosmetics.import_outfit(payload)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(outfit, status_code=201)
+
+
+@app.get("/api/cosmetics/weapon-skins")
+async def weapon_skins() -> Dict:
+    return {"weaponSkins": cosmetics.list_weapon_skins()}
+
+
+@app.post("/api/cosmetics/weapon-skins")
+async def import_weapon_skin(payload: Dict) -> Dict:
+    try:
+        skin = cosmetics.import_weapon_skin(payload)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(skin, status_code=201)
+
+
+@app.get("/api/animations")
+async def animation_sets() -> Dict:
+    return {"animationSets": cosmetics.list_animation_sets()}
+
+
+@app.post("/api/locker/equip")
+async def equip(payload: Dict) -> Dict:
+    outfit_id = payload.get("outfitId")
+    weapon_skin_id = payload.get("weaponSkinId")
+    result: Dict[str, Dict] = {}
+    try:
+        if outfit_id:
+            result["outfit"] = cosmetics.equip_outfit(outfit_id)
+        if weapon_skin_id:
+            result["weaponSkin"] = cosmetics.equip_weapon_skin(weapon_skin_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return result or {"updated": False}
 
 
 @app.post("/api/queue")
@@ -105,6 +155,12 @@ async def match_view(request: Request, match_id: str, session: Optional[str] = N
     session_payload = None
     if session:
         session_payload = await matchmaker.serialize_session(session)
+        if session_payload and session_payload.get("match"):
+            match_payload = session_payload["match"]
+        elif session_payload:
+            contextual_match = await matchmaker.serialize_match_for_session(match_id, session)
+            if contextual_match:
+                match_payload = contextual_match
     return templates.TemplateResponse(
         "match.html",
         {
@@ -122,17 +178,27 @@ def _random_pilot_name() -> str:
 
 async def _build_lobby_payload() -> Dict:
     snapshot = await matchmaker.lobby_snapshot()
+    cosmetics_overview = cosmetics.lobby_overview()
+    equipped_outfit = cosmetics_overview["equippedOutfit"]
+    equipped_skin = cosmetics_overview["equippedWeaponSkin"]
+    next_tiers = [
+        {"tier": tier, "reward": f"Ricompensa estetica #{tier}"}
+        for tier in range(1, 51)
+    ]
     return {
         "hero": {
             "displayName": "Pilota Zenith",
             "level": 58,
             "xpProgress": 0.54,
             "title": "Operatore di Apex Squadron",
+            "outfit": equipped_outfit,
+            "weaponSkin": equipped_skin,
             "loadout": {
                 "primary": "Fucile a impulsi VX-9",
                 "secondary": "Pistola plasma Viper",
                 "gadget": "Drone di ricognizione",
             },
+            "cosmetics": cosmetics_overview,
         },
         "currencies": {
             "credits": 1250,
@@ -142,11 +208,8 @@ async def _build_lobby_payload() -> Dict:
         "battlePass": {
             "level": 27,
             "progress": 0.54,
-            "rewards": [
-                {"tier": 28, "reward": "Skin arma - Aurora"},
-                {"tier": 29, "reward": "Spray - Onda Quantum"},
-                {"tier": 30, "reward": "Emote - Drop dinamico"},
-            ],
+            "rewards": next_tiers[:5],
+            "totalTiers": 50,
         },
         "activity": snapshot,
         "dailyHighlight": {
@@ -158,12 +221,13 @@ async def _build_lobby_payload() -> Dict:
             "blurb": "Nuovi obiettivi dinamici e ricompense a tempo limitato ogni settimana.",
         },
         "locker": {
-            "outfit": "Sentinella Prisma",
+            "outfit": equipped_outfit["name"],
             "backbling": "Nucleo Orbitale",
             "pickaxe": "Falce Ionica",
             "glider": "Ala Luminosa",
-            "wrap": "Circuito Neon",
+            "wrap": equipped_skin["name"],
             "emotes": ["Scia Nova", "Cadenza Zero"],
+            "cosmetics": cosmetics_overview,
         },
         "shop": {
             "featured": [
@@ -183,6 +247,7 @@ async def _build_lobby_payload() -> Dict:
             "kdr": 3.2,
             "timePlayedMinutes": 5420,
         },
+        "cosmetics": cosmetics_overview,
     }
 
 

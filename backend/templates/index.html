@@ -120,36 +120,131 @@
 
         <section class="panel locker-panel" data-view-section="locker" {% if active_view != 'locker' %}hidden{% endif %}>
           <h2>Armadietto</h2>
-          <p class="panel-subtitle">Personalizza l'aspetto del tuo operatore.</p>
-          <div class="locker-grid">
-            <div>
-              <span class="label">Skin</span>
-              <strong id="locker-outfit">{{ lobby.locker.outfit }}</strong>
+          <p class="panel-subtitle">Personalizza l'aspetto del tuo operatore con skin, armi e animazioni dedicate.</p>
+          <div class="locker-layout">
+            <aside class="locker-summary">
+              <article class="locker-card">
+                <figure class="locker-thumb">
+                  <img id="locker-outfit-thumb" src="{{ lobby.cosmetics.equippedOutfit.thumbnailUrl }}" alt="Skin equipaggiata" />
+                </figure>
+                <div class="locker-card-body">
+                  <span class="label">Skin equipaggiata</span>
+                  <strong id="locker-outfit">{{ lobby.locker.outfit }}</strong>
+                  <p id="locker-outfit-rarity" class="rarity-pill">{{ lobby.cosmetics.equippedOutfit.rarity }}</p>
+                  <ul class="locker-loadout">
+                    <li><span class="label">Zaino</span><strong id="locker-backbling">{{ lobby.locker.backbling }}</strong></li>
+                    <li><span class="label">Piccone</span><strong id="locker-pickaxe">{{ lobby.locker.pickaxe }}</strong></li>
+                    <li><span class="label">Deltaplano</span><strong id="locker-glider">{{ lobby.locker.glider }}</strong></li>
+                  </ul>
+                </div>
+              </article>
+              <article class="locker-card">
+                <figure class="locker-thumb">
+                  <img id="locker-weapon-thumb" src="{{ lobby.cosmetics.equippedWeaponSkin.thumbnailUrl }}" alt="Skin arma" />
+                </figure>
+                <div class="locker-card-body">
+                  <span class="label">Skin arma</span>
+                  <strong id="locker-wrap">{{ lobby.locker.wrap }}</strong>
+                  <p id="locker-wrap-bonus" class="rarity-pill">+{{ (lobby.cosmetics.equippedWeaponSkin.powerModifier * 100)|round(1) }}% potenza</p>
+                </div>
+              </article>
+              <article class="locker-card">
+                {% set equipped_animation = lobby.cosmetics.animationSets | selectattr('id', 'equalto', lobby.cosmetics.equippedOutfit.animationSetId) | list | first %}
+                <div class="locker-card-body">
+                  <span class="label">Set animazioni</span>
+                  <strong id="animation-name">{{ equipped_animation.name if equipped_animation else 'N/D' }}</strong>
+                  <p id="animation-description">{{ equipped_animation.description if equipped_animation else 'Configura un set animazioni per applicare blending dinamico in partita.' }}</p>
+                </div>
+              </article>
+              <div class="locker-emotes">
+                <h3>Emote rapidi</h3>
+                <ul id="locker-emotes">
+                  {% for emote in lobby.locker.emotes %}
+                  <li>{{ emote }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </aside>
+            <div class="locker-management">
+              <section class="cosmetic-library">
+                <div class="section-heading">
+                  <h3>Skin disponibili</h3>
+                  <span id="outfit-count" class="count-pill">{{ lobby.cosmetics.outfits | length }}</span>
+                </div>
+                <ul id="outfit-list" class="cosmetic-list">
+                  {% for outfit in lobby.cosmetics.outfits %}
+                  <li class="cosmetic-item {% if lobby.cosmetics.equippedOutfit.id == outfit.id %}equipped{% endif %}" data-outfit-id="{{ outfit.id }}">
+                    <img src="{{ outfit.thumbnailUrl }}" alt="{{ outfit.name }}" />
+                    <div class="cosmetic-details">
+                      <strong>{{ outfit.name }}</strong>
+                      <span>{{ outfit.rarity }}</span>
+                    </div>
+                    <button type="button" class="equip-btn" data-equip-outfit="{{ outfit.id }}">Equipaggia</button>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </section>
+              <section class="cosmetic-library">
+                <div class="section-heading">
+                  <h3>Skin arma</h3>
+                  <span id="weapon-count" class="count-pill">{{ lobby.cosmetics.weaponSkins | length }}</span>
+                </div>
+                <ul id="weapon-skin-list" class="cosmetic-list">
+                  {% for skin in lobby.cosmetics.weaponSkins %}
+                  <li class="cosmetic-item {% if lobby.cosmetics.equippedWeaponSkin.id == skin.id %}equipped{% endif %}" data-weapon-id="{{ skin.id }}">
+                    <img src="{{ skin.thumbnailUrl }}" alt="{{ skin.name }}" />
+                    <div class="cosmetic-details">
+                      <strong>{{ skin.name }}</strong>
+                      <span>{{ skin.rarity }}</span>
+                    </div>
+                    <button type="button" class="equip-btn" data-equip-weapon="{{ skin.id }}">Equipaggia</button>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </section>
+              <section class="cosmetic-forms">
+                <div class="form-card">
+                  <h3>Importa nuova skin</h3>
+                  <form id="outfit-import-form" class="cosmetic-form">
+                    <label>Nome
+                      <input type="text" name="name" required />
+                    </label>
+                    <label>URL modello glTF
+                      <input type="url" name="modelUrl" required placeholder="https://.../model.glb" />
+                    </label>
+                    <label>Anteprima (opzionale)
+                      <input type="url" name="thumbnailUrl" placeholder="https://.../preview.jpg" />
+                    </label>
+                    <label>Set animazioni
+                      <select name="animationSetId" id="outfit-animation-set">
+                        {% for animation in lobby.cosmetics.animationSets %}
+                        <option value="{{ animation.id }}" {% if lobby.cosmetics.equippedOutfit.animationSetId == animation.id %}selected{% endif %}>{{ animation.name }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <button type="submit" class="cta">Importa skin</button>
+                  </form>
+                </div>
+                <div class="form-card">
+                  <h3>Importa skin arma</h3>
+                  <form id="weapon-import-form" class="cosmetic-form">
+                    <label>Nome
+                      <input type="text" name="name" required />
+                    </label>
+                    <label>Texture o materiale
+                      <input type="url" name="textureUrl" required placeholder="https://.../texture.jpg" />
+                    </label>
+                    <label>Anteprima (opzionale)
+                      <input type="url" name="thumbnailUrl" placeholder="https://.../preview.jpg" />
+                    </label>
+                    <label>Potenziamento (%)
+                      <input type="number" step="0.1" min="0" max="5" name="powerModifier" value="2.0" />
+                    </label>
+                    <button type="submit" class="ghost">Importa skin arma</button>
+                  </form>
+                </div>
+              </section>
             </div>
-            <div>
-              <span class="label">Zaino</span>
-              <strong id="locker-backbling">{{ lobby.locker.backbling }}</strong>
-            </div>
-            <div>
-              <span class="label">Piccone</span>
-              <strong id="locker-pickaxe">{{ lobby.locker.pickaxe }}</strong>
-            </div>
-            <div>
-              <span class="label">Deltaplano</span>
-              <strong id="locker-glider">{{ lobby.locker.glider }}</strong>
-            </div>
-            <div>
-              <span class="label">Fascetta arma</span>
-              <strong id="locker-wrap">{{ lobby.locker.wrap }}</strong>
-            </div>
-          </div>
-          <div class="locker-emotes">
-            <h3>Emote</h3>
-            <ul id="locker-emotes">
-              {% for emote in lobby.locker.emotes %}
-              <li>{{ emote }}</li>
-              {% endfor %}
-            </ul>
           </div>
         </section>
 
