@@ -1,6 +1,16 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js';
+import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/loaders/GLTFLoader.js';
 
 const canvas = document.getElementById('game-canvas');
+const startScreen = document.getElementById('start-screen');
+const startButton = document.getElementById('start-button');
+const loadingStatus = document.getElementById('loading-status');
+
+startButton.disabled = true;
+startButton.textContent = 'Caricamento...';
+canvas.tabIndex = 0;
+canvas.setAttribute('aria-label', 'Campo di gioco Dropzone X');
+
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -28,6 +38,72 @@ const world = new THREE.Group();
 scene.add(world);
 
 const clock = new THREE.Clock();
+
+let assetsReady = false;
+let gameStarted = false;
+let autoStartHandle = null;
+
+const loadingManager = new THREE.LoadingManager(
+  () => {
+    assetsReady = true;
+    loadingStatus.textContent = 'Pronto a giocare!';
+    startButton.disabled = false;
+    startButton.textContent = 'Gioca ora';
+    if (document.hasFocus()) {
+      startButton.focus({ preventScroll: true });
+    }
+    autoStartHandle = window.setTimeout(() => {
+      if (!gameStarted) {
+        startGame();
+      }
+    }, 1200);
+  },
+  (url, itemsLoaded, itemsTotal) => {
+    const percent = itemsTotal ? Math.round((itemsLoaded / itemsTotal) * 100) : 0;
+    loadingStatus.textContent = `Caricamento risorse 3D... ${percent}%`;
+  },
+  (url) => {
+    loadingStatus.textContent = `Errore nel caricamento di ${url}`;
+    startButton.disabled = false;
+  }
+);
+
+function startGame() {
+  if (!assetsReady || gameStarted) {
+    return;
+  }
+  gameStarted = true;
+  if (autoStartHandle !== null) {
+    window.clearTimeout(autoStartHandle);
+    autoStartHandle = null;
+  }
+  startButton.disabled = true;
+  startScreen.classList.remove('visible');
+  Object.keys(movement).forEach((key) => {
+    movement[key] = false;
+  });
+  isShooting = false;
+  heroVelocity.set(0, 0, 0);
+  heroVerticalSpeed = 0;
+  joystickActive = false;
+  joystickVector.set(0, 0);
+  if (joystickThumb) {
+    joystickThumb.style.transform = 'translate(-50%, -50%)';
+  }
+  canvas.focus({ preventScroll: true });
+}
+
+startButton.addEventListener('click', () => {
+  if (assetsReady) {
+    startGame();
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.code === 'Enter' && assetsReady && !gameStarted) {
+    startGame();
+  }
+});
 
 const cameraState = {
   azimuth: Math.PI,
@@ -179,53 +255,6 @@ function createCharacterTexture(primary, accent) {
   });
 }
 
-function createFaceTexture() {
-  return createCanvasTexture(512, (ctx, size) => {
-    ctx.fillStyle = '#0f1f3a';
-    ctx.fillRect(0, 0, size, size);
-
-    const visorGradient = ctx.createLinearGradient(0, 0, size, size);
-    visorGradient.addColorStop(0, '#0ff6ff');
-    visorGradient.addColorStop(1, '#053570');
-    ctx.fillStyle = visorGradient;
-    const cornerRadius = size * 0.18;
-    if (ctx.roundRect) {
-      ctx.beginPath();
-      ctx.roundRect(size * 0.1, size * 0.2, size * 0.8, size * 0.6, cornerRadius);
-      ctx.fill();
-    } else {
-      const x = size * 0.1;
-      const y = size * 0.2;
-      const width = size * 0.8;
-      const height = size * 0.6;
-      ctx.beginPath();
-      ctx.moveTo(x + cornerRadius, y);
-      ctx.lineTo(x + width - cornerRadius, y);
-      ctx.quadraticCurveTo(x + width, y, x + width, y + cornerRadius);
-      ctx.lineTo(x + width, y + height - cornerRadius);
-      ctx.quadraticCurveTo(x + width, y + height, x + width - cornerRadius, y + height);
-      ctx.lineTo(x + cornerRadius, y + height);
-      ctx.quadraticCurveTo(x, y + height, x, y + height - cornerRadius);
-      ctx.lineTo(x, y + cornerRadius);
-      ctx.quadraticCurveTo(x, y, x + cornerRadius, y);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(size * 0.2, size * 0.45);
-    ctx.quadraticCurveTo(size * 0.5, size * 0.25, size * 0.8, size * 0.45);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.beginPath();
-    ctx.ellipse(size * 0.35, size * 0.35, size * 0.18, size * 0.08, 0.4, 0, Math.PI * 2);
-    ctx.fill();
-  });
-}
-
 function createWeaponTexture() {
   return createCanvasTexture(512, (ctx, size) => {
     ctx.fillStyle = '#14191f';
@@ -255,84 +284,156 @@ const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), groundMaterial)
 ground.rotation.x = -Math.PI / 2;
 world.add(ground);
 
-const bodyTexture = createCharacterTexture('#071b39', '#0ff6ff');
-const faceTexture = createFaceTexture();
 const weaponTexture = createWeaponTexture();
 
-function createCharacter() {
-  const group = new THREE.Group();
+const hero = new THREE.Group();
+world.add(hero);
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.6, 0.7), new THREE.MeshStandardMaterial({
-    map: bodyTexture,
-    metalness: 0.3,
-    roughness: 0.5,
-    emissive: new THREE.Color('#022240'),
-    emissiveIntensity: 0.3,
-  }));
-  torso.position.y = 1.8;
-  group.add(torso);
+const heroVisualRoot = new THREE.Group();
+hero.add(heroVisualRoot);
 
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), new THREE.MeshStandardMaterial({
-    map: faceTexture,
-    metalness: 0.2,
-    roughness: 0.4,
-    emissive: new THREE.Color('#052e6e'),
-    emissiveIntensity: 0.6,
-  }));
-  head.position.y = 2.7;
-  group.add(head);
-
-  const limbMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#0a2b4d'),
-    metalness: 0.2,
-    roughness: 0.6,
-    emissive: new THREE.Color('#021627'),
+function createHeroWeapon() {
+  const weaponGroup = new THREE.Group();
+  const bodyMaterial = new THREE.MeshStandardMaterial({
+    map: weaponTexture,
+    metalness: 0.65,
+    roughness: 0.35,
+    emissive: new THREE.Color('#11d7ff'),
     emissiveIntensity: 0.4,
   });
 
-  const armGeometry = new THREE.BoxGeometry(0.35, 1.2, 0.35);
-  const leftArm = new THREE.Mesh(armGeometry, limbMaterial);
-  leftArm.position.set(-0.85, 1.85, 0);
-  group.add(leftArm);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.28, 0.4), bodyMaterial);
+  body.position.x = 0.45;
+  body.userData.tintable = true;
+  weaponGroup.add(body);
 
-  const rightArm = new THREE.Mesh(armGeometry, limbMaterial);
-  rightArm.position.set(0.85, 1.85, 0);
-  group.add(rightArm);
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.32, 0.32), bodyMaterial);
+  stock.position.set(-0.4, -0.05, 0);
+  stock.userData.tintable = true;
+  weaponGroup.add(stock);
 
-  const legGeometry = new THREE.BoxGeometry(0.45, 1.4, 0.45);
-  const leftLeg = new THREE.Mesh(legGeometry, limbMaterial);
-  leftLeg.position.set(-0.35, 0.7, 0);
-  group.add(leftLeg);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.18), bodyMaterial);
+  grip.position.set(0.05, -0.35, 0);
+  grip.userData.tintable = true;
+  weaponGroup.add(grip);
 
-  const rightLeg = new THREE.Mesh(legGeometry, limbMaterial);
-  rightLeg.position.set(0.35, 0.7, 0);
-  group.add(rightLeg);
+  const emitterMaterial = new THREE.MeshStandardMaterial({
+    color: 0xff2d95,
+    emissive: 0xff2d95,
+    emissiveIntensity: 0.8,
+    metalness: 0.2,
+    roughness: 0.1,
+  });
+  const emitter = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.08, 0.8, 24), emitterMaterial);
+  emitter.rotation.z = Math.PI / 2;
+  emitter.position.set(0.85, 0, 0);
+  weaponGroup.add(emitter);
 
-  const visorGlow = new THREE.PointLight('#44f1ff', 1.8, 8);
-  visorGlow.position.set(0, 2.7, 0.4);
-  group.add(visorGlow);
+  const muzzleAnchor = new THREE.Object3D();
+  muzzleAnchor.position.set(1.1, 0, 0);
+  weaponGroup.add(muzzleAnchor);
 
-  const weapon = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 0.4), new THREE.MeshStandardMaterial({
-    map: weaponTexture,
-    emissive: new THREE.Color('#ff2d95'),
-    emissiveIntensity: 0.5,
-    metalness: 0.6,
-    roughness: 0.3,
-  }));
-  weapon.position.set(1.35, 1.6, 0);
-  weapon.rotation.z = -Math.PI / 8;
-  group.add(weapon);
+  weaponGroup.userData.muzzleAnchor = muzzleAnchor;
 
-  return {
-    group,
-    limbs: { leftArm, rightArm, leftLeg, rightLeg },
-    weapon,
-  };
+  return weaponGroup;
 }
 
-const heroData = createCharacter();
-const hero = heroData.group;
-world.add(hero);
+const heroWeapon = createHeroWeapon();
+heroWeapon.position.set(0.8, 1.6, -0.2);
+heroWeapon.rotation.set(THREE.MathUtils.degToRad(-5), THREE.MathUtils.degToRad(8), THREE.MathUtils.degToRad(88));
+hero.add(heroWeapon);
+
+const weaponRestQuaternion = new THREE.Quaternion().copy(heroWeapon.quaternion);
+
+const heroData = {
+  group: hero,
+  weapon: heroWeapon,
+  mixer: null,
+  actions: {},
+  animation: {
+    current: null,
+    idle: null,
+    move: null,
+  },
+  ready: false,
+};
+
+const gltfLoader = new GLTFLoader(loadingManager);
+gltfLoader.load(
+  'https://threejs.org/examples/models/gltf/Soldier.glb',
+  (gltf) => {
+    const model = gltf.scene;
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        if (child.material && child.material.color) {
+          child.material.color.multiplyScalar(1.08);
+        }
+      }
+    });
+    model.scale.set(1.45, 1.45, 1.45);
+    model.position.y = 0;
+    model.rotation.y = Math.PI;
+    heroVisualRoot.add(model);
+
+    heroData.mixer = new THREE.AnimationMixer(model);
+    gltf.animations.forEach((clip) => {
+      const key = clip.name.toLowerCase();
+      const action = heroData.mixer.clipAction(clip);
+      heroData.actions[key] = action;
+    });
+
+    heroData.animation.idle =
+      heroData.actions['idle'] ||
+      heroData.actions['idle_armed'] ||
+      heroData.actions['idle_aim'] ||
+      null;
+    heroData.animation.move =
+      heroData.actions['run'] ||
+      heroData.actions['run_forward'] ||
+      heroData.actions['walk'] ||
+      null;
+
+    if (heroData.animation.idle) {
+      heroData.animation.idle.reset().fadeIn(0).play();
+      heroData.animation.current = heroData.animation.idle;
+    } else if (heroData.animation.move) {
+      heroData.animation.move.reset().fadeIn(0).play();
+      heroData.animation.current = heroData.animation.move;
+    }
+
+    const rightHand =
+      model.getObjectByName('mixamorigRightHand') ||
+      model.getObjectByName('RightHand') ||
+      model;
+    rightHand.add(heroWeapon);
+    heroWeapon.position.set(0.16, -0.02, -0.08);
+    heroWeapon.rotation.set(
+      THREE.MathUtils.degToRad(-10),
+      THREE.MathUtils.degToRad(8),
+      THREE.MathUtils.degToRad(98)
+    );
+    heroWeapon.scale.setScalar(0.75);
+    heroWeapon.updateMatrixWorld(true);
+    weaponRestQuaternion.copy(heroWeapon.quaternion);
+
+    heroData.ready = true;
+  },
+  undefined,
+  (error) => {
+    console.error('Impossibile caricare il modello 3D del soldato', error);
+    assetsReady = true;
+    startButton.disabled = false;
+    startButton.textContent = 'Gioca ora';
+    loadingStatus.textContent = 'Asset 3D non disponibile. Premi Gioca per continuare.';
+    autoStartHandle = window.setTimeout(() => {
+      if (!gameStarted) {
+        startGame();
+      }
+    }, 1200);
+  }
+);
 
 const HERO_SPEED = 6;
 const HERO_JUMP_STRENGTH = 8;
@@ -422,9 +523,25 @@ function updateWeaponAppearance() {
     epico: '#b96bff',
     leggendario: '#ffad0d',
   };
-  const emissiveColor = colorMap[activeWeapon.rarity] || '#ffffff';
-  weapon.material.emissive = new THREE.Color(emissiveColor);
-  weapon.material.needsUpdate = true;
+  const emissiveHex = colorMap[activeWeapon.rarity] || '#ffffff';
+  const emissiveColor = new THREE.Color(emissiveHex);
+  const baseColor = emissiveColor.clone().lerp(new THREE.Color('#0b1120'), 0.55);
+
+  if (!weapon) {
+    return;
+  }
+
+  weapon.traverse((child) => {
+    if (child.isMesh && child.userData.tintable && child.material) {
+      if (child.material.emissive) {
+        child.material.emissive.copy(emissiveColor);
+      }
+      if (child.material.color) {
+        child.material.color.copy(baseColor);
+      }
+      child.material.needsUpdate = true;
+    }
+  });
 }
 
 populateUI();
@@ -519,6 +636,10 @@ const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 
 function updateCursor() {
+  if (!gameStarted) {
+    cursor.visible = false;
+    return;
+  }
   raycaster.setFromCamera(pointer, camera);
   const intersects = raycaster.intersectObject(ground);
   if (intersects.length) {
@@ -539,6 +660,9 @@ canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 canvas.addEventListener(
   'wheel',
   (event) => {
+    if (!gameStarted) {
+      return;
+    }
     adjustCameraDistance(event.deltaY * 0.01);
     event.preventDefault();
   },
@@ -556,6 +680,9 @@ const movement = {
 let isShooting = false;
 
 function onKeyChange(event, value) {
+  if (!gameStarted) {
+    return;
+  }
   switch (event.code) {
     case 'KeyW':
     case 'ArrowUp':
@@ -581,6 +708,9 @@ function onKeyChange(event, value) {
 
 if (!device.isMobile) {
   document.addEventListener('keydown', (event) => {
+    if (!gameStarted) {
+      return;
+    }
     onKeyChange(event, true);
     if (event.code === 'Digit1' || event.code === 'Digit2' || event.code === 'Digit3') {
       const index = parseInt(event.code.replace('Digit', ''), 10) - 1;
@@ -594,8 +724,16 @@ if (!device.isMobile) {
       buildStructure('wall');
     }
   });
-  document.addEventListener('keyup', (event) => onKeyChange(event, false));
+  document.addEventListener('keyup', (event) => {
+    if (!gameStarted) {
+      return;
+    }
+    onKeyChange(event, false);
+  });
   canvas.addEventListener('mousedown', (event) => {
+    if (!gameStarted) {
+      return;
+    }
     if (event.button === 2) {
       event.preventDefault();
       beginCameraDrag(event.clientX, event.clientY);
@@ -606,6 +744,9 @@ if (!device.isMobile) {
     }
   });
   document.addEventListener('mouseup', (event) => {
+    if (!gameStarted) {
+      return;
+    }
     if (event.button === 0) {
       isShooting = false;
     }
@@ -614,6 +755,9 @@ if (!device.isMobile) {
     }
   });
   document.addEventListener('mousemove', (event) => {
+    if (!gameStarted) {
+      return;
+    }
     if (cameraDragState.active) {
       updateCameraDrag(event.clientX, event.clientY);
     }
@@ -621,6 +765,9 @@ if (!device.isMobile) {
 }
 
 function buildStructure(type) {
+  if (!gameStarted) {
+    return;
+  }
   const geometryMap = {
     wall: new THREE.BoxGeometry(3, 3, 0.3),
     ramp: new THREE.BoxGeometry(3, 0.3, 3),
@@ -680,22 +827,27 @@ const buildButton = document.getElementById('build-btn');
 if (device.isMobile) {
   jumpButton.addEventListener('touchstart', (event) => {
     event.preventDefault();
+    if (!gameStarted) return;
     movement.jumping = true;
   });
   jumpButton.addEventListener('touchend', (event) => {
     event.preventDefault();
+    if (!gameStarted) return;
     movement.jumping = false;
   });
   fireButton.addEventListener('touchstart', (event) => {
     event.preventDefault();
+    if (!gameStarted) return;
     isShooting = true;
   });
   fireButton.addEventListener('touchend', (event) => {
     event.preventDefault();
+    if (!gameStarted) return;
     isShooting = false;
   });
   buildButton.addEventListener('touchstart', (event) => {
     event.preventDefault();
+    if (!gameStarted) return;
     buildStructure('ramp');
   });
 }
@@ -706,7 +858,7 @@ let joystickActive = false;
 const joystickVector = new THREE.Vector2();
 
 function updateJoystick(event) {
-  if (!event.touches || event.touches.length === 0) return;
+  if (!gameStarted || !event.touches || event.touches.length === 0) return;
 
   const rect = joystick.getBoundingClientRect();
   const x = event.touches[0].clientX - rect.left;
@@ -735,12 +887,14 @@ if (device.isMobile) {
 
   joystick.addEventListener('touchstart', (event) => {
     event.preventDefault();
+    if (!gameStarted) return;
     joystickActive = true;
     updateJoystick(event);
   });
 
   joystick.addEventListener('touchmove', (event) => {
     event.preventDefault();
+    if (!gameStarted) return;
     if (!joystickActive) return;
     updateJoystick(event);
   });
@@ -750,6 +904,12 @@ if (device.isMobile) {
 }
 
 function updateMovement(delta) {
+  if (!gameStarted) {
+    heroVelocity.set(0, 0, 0);
+    heroVerticalSpeed = 0;
+    return false;
+  }
+
   heroDirection.set(0, 0, 0);
   let moveForward = 0;
   let moveRight = 0;
@@ -783,20 +943,12 @@ function updateMovement(delta) {
     heroVelocity.set(0, 0, 0);
   }
 
-  const isMoving = heroVelocity.lengthSq() > 0;
+  const isMoving = heroVelocity.lengthSq() > 0.01;
 
   heroDisplacement.copy(heroVelocity).multiplyScalar(delta);
   hero.position.add(heroDisplacement);
   hero.position.x = THREE.MathUtils.clamp(hero.position.x, -60, 60);
   hero.position.z = THREE.MathUtils.clamp(hero.position.z, -60, 60);
-
-  const amplitude = isMoving ? 0.3 : 0;
-  const legSwingSpeed = isMoving ? 12 : 0;
-  const legSwing = Math.sin(clock.elapsedTime * legSwingSpeed) * amplitude;
-  heroData.limbs.leftLeg.rotation.x = legSwing;
-  heroData.limbs.rightLeg.rotation.x = -legSwing;
-  heroData.limbs.leftArm.rotation.x = -legSwing * 0.8;
-  heroData.limbs.rightArm.rotation.x = legSwing * 0.8;
 
   if (movement.jumping && hero.position.y <= 0.05) {
     heroVerticalSpeed = HERO_JUMP_STRENGTH;
@@ -810,26 +962,67 @@ function updateMovement(delta) {
     hero.position.y = 0;
     heroVerticalSpeed = 0;
   }
+
+  return isMoving;
+}
+
+function updateHeroAnimation(delta, isMoving) {
+  if (!heroData.mixer) {
+    return;
+  }
+
+  heroData.mixer.update(delta);
+
+  const targetAction = isMoving
+    ? heroData.animation.move || heroData.animation.idle
+    : heroData.animation.idle || heroData.animation.move;
+
+  if (!targetAction || heroData.animation.current === targetAction) {
+    return;
+  }
+
+  if (heroData.animation.current) {
+    heroData.animation.current.fadeOut(0.25);
+  }
+
+  targetAction.reset().fadeIn(0.25).play();
+  heroData.animation.current = targetAction;
 }
 
 const muzzleFlash = new THREE.PointLight('#ff6f61', 4, 6);
 muzzleFlash.visible = false;
-hero.add(muzzleFlash);
+scene.add(muzzleFlash);
+
+const muzzleWorldPosition = new THREE.Vector3();
+const recoilAxis = new THREE.Vector3(0, 0, 1);
+const recoilQuaternion = new THREE.Quaternion();
 
 function updateShooting(delta) {
-  if (!isShooting) {
+  if (!heroData.weapon) {
+    return;
+  }
+
+  if (!isShooting || !gameStarted) {
     muzzleFlash.visible = false;
+    heroData.weapon.quaternion.slerp(weaponRestQuaternion, 1 - Math.pow(0.02, delta));
+    return;
+  }
+
+  const muzzleAnchor = heroData.weapon.userData.muzzleAnchor;
+  if (!muzzleAnchor) {
     return;
   }
 
   muzzleFlash.visible = true;
-  muzzleFlash.position.set(1.6, 1.6, -0.1);
+  muzzleAnchor.getWorldPosition(muzzleWorldPosition);
+  muzzleFlash.position.copy(muzzleWorldPosition);
 
   const pulse = (Math.sin(clock.elapsedTime * 40) + 1) / 2;
   muzzleFlash.intensity = 2 + pulse * 4;
 
-  const recoil = Math.sin(clock.elapsedTime * 20) * 0.05;
-  heroData.weapon.rotation.x = recoil;
+  const recoil = Math.sin(clock.elapsedTime * 30) * 0.07;
+  recoilQuaternion.setFromAxisAngle(recoilAxis, recoil);
+  heroData.weapon.quaternion.copy(weaponRestQuaternion).multiply(recoilQuaternion);
 }
 
 function updateCamera(delta) {
@@ -843,7 +1036,8 @@ function updateCamera(delta) {
 function animate() {
   const delta = clock.getDelta();
   refreshCameraBasis();
-  updateMovement(delta);
+  const moving = updateMovement(delta);
+  updateHeroAnimation(delta, moving);
   updateShooting(delta);
   updateCamera(delta);
   updateCursor();
