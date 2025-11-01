@@ -29,6 +29,100 @@ scene.add(world);
 
 const clock = new THREE.Clock();
 
+const cameraState = {
+  azimuth: Math.PI,
+  polar: THREE.MathUtils.degToRad(40),
+  distance: 12,
+  minPolar: THREE.MathUtils.degToRad(18),
+  maxPolar: THREE.MathUtils.degToRad(75),
+  minDistance: 7,
+  maxDistance: 24,
+};
+
+const cameraOffset = new THREE.Vector3();
+const desiredCameraPosition = new THREE.Vector3();
+const cameraVectors = {
+  forward: new THREE.Vector3(0, 0, -1),
+  right: new THREE.Vector3(1, 0, 0),
+};
+const cameraLookTarget = new THREE.Vector3();
+const worldUp = new THREE.Vector3(0, 1, 0);
+
+function refreshCameraBasis() {
+  const sinPolar = Math.sin(cameraState.polar);
+  const cosPolar = Math.cos(cameraState.polar);
+  const sinAzimuth = Math.sin(cameraState.azimuth);
+  const cosAzimuth = Math.cos(cameraState.azimuth);
+
+  cameraOffset
+    .set(sinAzimuth * cosPolar, sinPolar, cosAzimuth * cosPolar)
+    .multiplyScalar(cameraState.distance);
+
+  cameraVectors.forward.copy(cameraOffset).multiplyScalar(-1).setY(0);
+  if (cameraVectors.forward.lengthSq() < 1e-6) {
+    cameraVectors.forward.set(0, 0, -1);
+  } else {
+    cameraVectors.forward.normalize();
+  }
+
+  cameraVectors.right.copy(worldUp).cross(cameraVectors.forward);
+  if (cameraVectors.right.lengthSq() < 1e-6) {
+    cameraVectors.right.set(1, 0, 0);
+  } else {
+    cameraVectors.right.normalize();
+  }
+}
+
+function adjustCameraAngles(deltaX, deltaY) {
+  cameraState.azimuth -= deltaX * 0.005;
+  cameraState.polar = THREE.MathUtils.clamp(
+    cameraState.polar - deltaY * 0.003,
+    cameraState.minPolar,
+    cameraState.maxPolar
+  );
+  cameraState.azimuth = THREE.MathUtils.euclideanModulo(
+    cameraState.azimuth,
+    Math.PI * 2
+  );
+}
+
+function adjustCameraDistance(delta) {
+  cameraState.distance = THREE.MathUtils.clamp(
+    cameraState.distance + delta,
+    cameraState.minDistance,
+    cameraState.maxDistance
+  );
+}
+
+const cameraDragState = {
+  active: false,
+  lastX: 0,
+  lastY: 0,
+  touchId: null,
+};
+
+function beginCameraDrag(x, y, touchId = null) {
+  cameraDragState.active = true;
+  cameraDragState.lastX = x;
+  cameraDragState.lastY = y;
+  cameraDragState.touchId = touchId;
+}
+
+function updateCameraDrag(x, y) {
+  if (!cameraDragState.active) return;
+  adjustCameraAngles(x - cameraDragState.lastX, y - cameraDragState.lastY);
+  cameraDragState.lastX = x;
+  cameraDragState.lastY = y;
+}
+
+function endCameraDrag(touchId = null) {
+  if (touchId !== null && cameraDragState.touchId !== touchId) {
+    return;
+  }
+  cameraDragState.active = false;
+  cameraDragState.touchId = null;
+}
+
 function createCanvasTexture(size, painter) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -249,7 +343,7 @@ const heroDisplacement = new THREE.Vector3();
 const heroDirection = new THREE.Vector3();
 let heroVerticalSpeed = 0;
 
-const targetPosition = new THREE.Vector3();
+const scratchVector = new THREE.Vector3();
 
 const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0x0ff6ff, wireframe: true });
 const cursor = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), highlightMaterial);
@@ -342,20 +436,81 @@ const device = {
 
 const controlsHelp = document.getElementById('controls-help');
 const mobileControls = document.getElementById('mobile-controls');
+const mobileCameraControls = document.getElementById('mobile-camera-controls');
+const zoomInButton = document.getElementById('zoom-in-btn');
+const zoomOutButton = document.getElementById('zoom-out-btn');
 
 if (device.isMobile) {
   controlsHelp.innerHTML = `
     <strong>Touch Controls</strong><br/>
     • Muovi il joystick virtuale per camminare.<br/>
     • Usa i pulsanti per saltare, sparare e costruire.<br/>
-    • Tocco doppio per eseguire uno sprint breve.
+    • Trascina il lato destro per ruotare la camera.<br/>
+    • Pulsanti +/- per regolare lo zoom.
   `;
   mobileControls.classList.remove('hidden');
+  mobileCameraControls.classList.remove('hidden');
+
+  const bindZoomButton = (button, delta) => {
+    if (!button) return;
+    button.addEventListener(
+      'touchstart',
+      (event) => {
+        event.preventDefault();
+        adjustCameraDistance(delta);
+      },
+      { passive: false }
+    );
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      adjustCameraDistance(delta);
+    });
+  };
+
+  bindZoomButton(zoomInButton, -1.2);
+  bindZoomButton(zoomOutButton, 1.2);
+
+  const touchRotationThreshold = () => window.innerWidth * 0.45;
+
+  const handleTouchStart = (event) => {
+    for (const touch of Array.from(event.changedTouches)) {
+      if (touch.clientX > touchRotationThreshold() && !cameraDragState.active) {
+        beginCameraDrag(touch.clientX, touch.clientY, touch.identifier);
+        event.preventDefault();
+        break;
+      }
+    }
+  };
+
+  const handleTouchMove = (event) => {
+    if (!cameraDragState.active) return;
+    for (const touch of Array.from(event.touches)) {
+      if (touch.identifier === cameraDragState.touchId) {
+        updateCameraDrag(touch.clientX, touch.clientY);
+        event.preventDefault();
+        break;
+      }
+    }
+  };
+
+  const handleTouchEnd = (event) => {
+    for (const touch of Array.from(event.changedTouches)) {
+      if (touch.identifier === cameraDragState.touchId) {
+        endCameraDrag(touch.identifier);
+      }
+    }
+  };
+
+  canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+  canvas.addEventListener('touchend', handleTouchEnd);
+  canvas.addEventListener('touchcancel', handleTouchEnd);
 } else {
   controlsHelp.innerHTML = `
     <strong>Comandi Desktop</strong><br/>
     • WASD o frecce per muoversi.<br/>
     • Spazio per saltare, tasto sinistro per sparare.<br/>
+    • Tasto destro + trascinamento per ruotare la camera, rotellina per lo zoom.<br/>
     • Tasti 1-3 per cambiare arma, F per costruire struttura selezionata.
   `;
 }
@@ -369,7 +524,6 @@ function updateCursor() {
   if (intersects.length) {
     cursor.visible = true;
     cursor.position.copy(intersects[0].point);
-    targetPosition.copy(intersects[0].point);
   } else {
     cursor.visible = false;
   }
@@ -380,6 +534,16 @@ document.addEventListener('pointermove', (event) => {
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
   updateCursor();
 });
+
+canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+canvas.addEventListener(
+  'wheel',
+  (event) => {
+    adjustCameraDistance(event.deltaY * 0.01);
+    event.preventDefault();
+  },
+  { passive: false }
+);
 
 const movement = {
   forward: false,
@@ -431,8 +595,29 @@ if (!device.isMobile) {
     }
   });
   document.addEventListener('keyup', (event) => onKeyChange(event, false));
-  document.addEventListener('mousedown', () => (isShooting = true));
-  document.addEventListener('mouseup', () => (isShooting = false));
+  canvas.addEventListener('mousedown', (event) => {
+    if (event.button === 2) {
+      event.preventDefault();
+      beginCameraDrag(event.clientX, event.clientY);
+      return;
+    }
+    if (event.button === 0) {
+      isShooting = true;
+    }
+  });
+  document.addEventListener('mouseup', (event) => {
+    if (event.button === 0) {
+      isShooting = false;
+    }
+    if (event.button === 2) {
+      endCameraDrag();
+    }
+  });
+  document.addEventListener('mousemove', (event) => {
+    if (cameraDragState.active) {
+      updateCameraDrag(event.clientX, event.clientY);
+    }
+  });
 }
 
 function buildStructure(type) {
@@ -455,10 +640,23 @@ function buildStructure(type) {
   const geometry = geometryMap[type] || geometryMap.wall;
   const structure = new THREE.Mesh(geometry, material);
 
-  structure.position.copy(hero.position);
-  structure.position.y += type === 'ramp' ? 0.5 : 1.5;
-  structure.position.z -= 3;
-  structure.rotation.y = camera.rotation.y;
+  const placement = cursor.visible
+    ? scratchVector.copy(cursor.position)
+    : scratchVector
+        .copy(cameraVectors.forward)
+        .multiplyScalar(4)
+        .add(hero.position);
+
+  const baseHeights = {
+    wall: 1.5,
+    ramp: 0.2,
+    turret: 1.2,
+  };
+
+  structure.position.copy(placement);
+  structure.position.y = placement.y + (baseHeights[type] ?? 1.2);
+
+  structure.rotation.y = Math.atan2(cameraVectors.forward.x, cameraVectors.forward.z);
   if (type === 'ramp') {
     structure.rotation.x = -Math.PI / 6;
   }
@@ -553,28 +751,39 @@ if (device.isMobile) {
 
 function updateMovement(delta) {
   heroDirection.set(0, 0, 0);
+  let moveForward = 0;
+  let moveRight = 0;
 
   if (device.isMobile && joystickActive) {
-    heroDirection.x = joystickVector.x;
-    heroDirection.z = joystickVector.y;
+    moveForward = -joystickVector.y;
+    moveRight = joystickVector.x;
   } else {
-    if (movement.forward) heroDirection.z -= 1;
-    if (movement.backward) heroDirection.z += 1;
-    if (movement.left) heroDirection.x -= 1;
-    if (movement.right) heroDirection.x += 1;
+    if (movement.forward) moveForward += 1;
+    if (movement.backward) moveForward -= 1;
+    if (movement.right) moveRight += 1;
+    if (movement.left) moveRight -= 1;
   }
 
-  const isMoving = heroDirection.lengthSq() > 0;
+  if (moveForward !== 0 || moveRight !== 0) {
+    heroDirection
+      .copy(cameraVectors.forward)
+      .multiplyScalar(moveForward)
+      .addScaledVector(cameraVectors.right, moveRight);
 
-  if (isMoving) {
-    heroDirection.normalize();
-    const angle = Math.atan2(heroDirection.x, heroDirection.z);
-    hero.rotation.y = angle;
-    heroVelocity.x = heroDirection.x * HERO_SPEED;
-    heroVelocity.z = heroDirection.z * HERO_SPEED;
+    if (heroDirection.lengthSq() > 0) {
+      heroDirection.normalize();
+      const angle = Math.atan2(heroDirection.x, heroDirection.z);
+      hero.rotation.y = angle;
+      heroVelocity.x = heroDirection.x * HERO_SPEED;
+      heroVelocity.z = heroDirection.z * HERO_SPEED;
+    } else {
+      heroVelocity.set(0, 0, 0);
+    }
   } else {
     heroVelocity.set(0, 0, 0);
   }
+
+  const isMoving = heroVelocity.lengthSq() > 0;
 
   heroDisplacement.copy(heroVelocity).multiplyScalar(delta);
   hero.position.add(heroDisplacement);
@@ -624,16 +833,20 @@ function updateShooting(delta) {
 }
 
 function updateCamera(delta) {
-  const desiredPosition = hero.position.clone().add(new THREE.Vector3(0, 4, 10));
-  camera.position.lerp(desiredPosition, 1 - Math.pow(0.001, delta));
-  camera.lookAt(hero.position.clone().add(new THREE.Vector3(0, 2, 0)));
+  desiredCameraPosition.copy(hero.position).add(cameraOffset);
+  camera.position.lerp(desiredCameraPosition, 1 - Math.pow(0.001, delta));
+  cameraLookTarget.copy(hero.position);
+  cameraLookTarget.y += 2;
+  camera.lookAt(cameraLookTarget);
 }
 
 function animate() {
   const delta = clock.getDelta();
+  refreshCameraBasis();
   updateMovement(delta);
   updateShooting(delta);
   updateCamera(delta);
+  updateCursor();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
@@ -646,4 +859,5 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
 });
 
+refreshCameraBasis();
 updateCursor();
