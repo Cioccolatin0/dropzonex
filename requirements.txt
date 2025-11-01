@@ -1,7 +1,9 @@
 fastapi==0.110.0
 uvicorn[standard]==0.27.1
 Jinja2==3.1.3
-SQLAlchemy==2.0.28
+# Pin SQLAlchemy to a Python 3.13-compatible release; earlier 2.0.28 raises
+# AssertionError during import on Windows due to TypingOnly changes.
+SQLAlchemy==2.0.36
 passlib[bcrypt]==1.7.4
 PyJWT==2.8.0
 email-validator==2.2.0
