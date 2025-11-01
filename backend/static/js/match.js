@@ -1,7 +1,7 @@
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { PointerLockControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/PointerLockControls.js";
-import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { clone as cloneSkinned } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/SkeletonUtils.js";
+import * as THREE from "three";
+import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
 const matchDataElement = document.getElementById("match-data");
 const payload = matchDataElement ? JSON.parse(matchDataElement.textContent) : null;
@@ -290,6 +290,14 @@ class ShooterGame {
     };
 
     this.enemyBlueprints = ENEMY_ARCHETYPES.map((profile, index) => ({ ...profile, spawnIndex: index }));
+    if (this.enemyBlueprints.length === 0) {
+      this.enemyBlueprints = Array.from({ length: 6 }, (_, index) => ({
+        codename: `Unità Spectre ${index + 1}`,
+        behavior: index % 3 === 0 ? "aggressive" : index % 3 === 1 ? "balanced" : "defensive",
+        damage: 8 + (index % 2),
+        spawnIndex: index,
+      }));
+    }
     this.pendingEnemies = [];
     this.enemies = [];
     this.totalEnemies = this.enemyBlueprints.length;
@@ -748,7 +756,12 @@ class ShooterGame {
     const defeated = this.totalEnemies - this.remainingEnemies;
     enemyScoreLabel.textContent = String(defeated);
     addFeedEntry(`${enemy.profile.codename} neutralizzato.`);
-    if (this.remainingEnemies <= 0 && this.enemies.length === 0 && this.pendingEnemies.length === 0) {
+    if (
+      this.remainingEnemies <= 0 &&
+      this.enemies.length === 0 &&
+      this.pendingEnemies.length === 0 &&
+      this.hasLaunched
+    ) {
       this.endMission(true);
     } else {
       this.triggerReinforcement();
