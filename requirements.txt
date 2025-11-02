@@ -1,0 +1,12 @@
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+Jinja2==3.1.3
+# Pin SQLAlchemy to a Python 3.13-compatible release; earlier 2.0.28 raises
+# AssertionError during import on Windows due to TypingOnly changes.
+SQLAlchemy==2.0.36
+# Passlib's bcrypt backend requires the legacy python-bcrypt package with
+# __about__.__version__, so pin below 4.x to avoid AttributeError on import.
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+PyJWT==2.8.0
+email-validator==2.2.0

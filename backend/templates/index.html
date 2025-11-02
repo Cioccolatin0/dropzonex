@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dropzone X</title>
+    <link rel="stylesheet" href="/static/css/app.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body data-active-view="{{ active_view or 'play' }}">
+    <div id="auth-overlay" class="auth-overlay" hidden>
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button type="button" data-auth-tab="login" class="active">Accedi</button>
+          <button type="button" data-auth-tab="register">Registrati</button>
+        </div>
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <label>
+            Username
+            <input type="text" name="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" required />
+          </label>
+          <button type="submit" class="cta">Entra</button>
+          <p class="auth-error" id="login-error" hidden></p>
+        </form>
+        <form id="register-form" class="auth-form" hidden autocomplete="on">
+          <label>
+            Username
+            <input type="text" name="username" required />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" minlength="6" required />
+          </label>
+          <button type="submit" class="cta">Crea account</button>
+          <p class="auth-error" id="register-error" hidden></p>
+        </form>
+      </div>
+    </div>
+    <div class="lobby-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <span class="brand-mark">Δ</span>
+          <span class="brand-title">Dropzone X</span>
+        </div>
+        <nav class="sidebar-menu" aria-label="Navigazione principale">
+          <button class="nav-btn {% if active_view == 'play' %}active{% endif %}" type="button" data-view="play">Gioca</button>
+          <button class="nav-btn {% if active_view == 'pass' %}active{% endif %}" type="button" data-view="pass">Pass Battaglia</button>
+          <button class="nav-btn {% if active_view == 'locker' %}active{% endif %}" type="button" data-view="locker">Armadietto</button>
+          <button class="nav-btn {% if active_view == 'shop' %}active{% endif %}" type="button" data-view="shop">Negozio</button>
+          <button class="nav-btn {% if active_view == 'stats' %}active{% endif %}" type="button" data-view="stats">Statistiche</button>
+          <button class="nav-btn {% if active_view == 'friends' %}active{% endif %}" type="button" data-view="friends">Amici</button>
+          <button class="nav-btn {% if active_view == 'settings' %}active{% endif %}" type="button" data-view="settings">Impostazioni</button>
+        </nav>
+        <div class="sidebar-foot">
+          <p class="sidebar-news" id="news-headline">{{ lobby.news.headline }}</p>
+          <p class="sidebar-news-detail" id="news-blurb">{{ lobby.news.blurb }}</p>
+        </div>
+      </aside>
+
+      <div class="main-stage">
+        <header class="player-bar">
+          <div class="player-ident">
+            <div class="player-nameplate">
+              <h1 id="player-name">{{ lobby.hero.displayName }}</h1>
+              <p id="hero-title">{{ lobby.hero.title }}</p>
+            </div>
+            <div class="player-level">
+              <span class="label">Livello</span>
+              <span id="player-level" class="value">{{ lobby.hero.level }}</span>
+            </div>
+          </div>
+          <div class="player-currencies" aria-label="Valute disponibili">
+            <span class="currency">⛁ <strong id="currency-credits">{{ lobby.currencies.credits }}</strong></span>
+            <span class="currency">⚡ <strong id="currency-flux">{{ lobby.currencies.flux }}</strong></span>
+            <span class="currency">◇ <strong id="currency-tokens">{{ lobby.currencies.tokens }}</strong></span>
+          </div>
+          <div class="player-profile" aria-label="Profilo giocatore">
+            <img id="player-avatar" src="{{ lobby.hero.cosmetics.equippedOutfit.thumbnailUrl }}" alt="Avatar giocatore" />
+          </div>
+        </header>
+
+        <div class="stage-grid">
+          <section class="hero-stage" aria-label="Operatore equipaggiato">
+            <div class="hero-canvas">
+              <canvas id="hero-canvas" role="img" aria-label="Anteprima operatore Dropzone X"></canvas>
+              <div class="hero-base">
+                <span class="base-shadow"></span>
+                <span class="base-ring"></span>
+              </div>
+            </div>
+            <div class="hero-details">
+              <div class="hero-header">
+                <div class="hero-identity">
+                  <h2>{{ lobby.hero.displayName }}</h2>
+                  <p class="hero-tagline">{{ lobby.hero.title }}</p>
+                </div>
+                <span class="mode-highlight">Operazione consigliata: <strong id="highlight-mode">{{ lobby.dailyHighlight.mode }}</strong> · <span id="highlight-map">{{ lobby.dailyHighlight.map }}</span></span>
+              </div>
+              <div class="hero-metrics">
+                <div class="xp-meter">
+                  <span class="label">Pass Battaglia</span>
+                  <div class="xp-bar">
+                    <div id="xp-fill" class="xp-fill" style="width: {{ lobby.hero.xpProgress * 100 }}%"></div>
+                  </div>
+                </div>
+                <ul class="loadout-grid">
+                  <li>
+                    <span class="label">Primaria</span>
+                    <strong id="loadout-primary">{{ lobby.hero.loadout.primary }}</strong>
+                  </li>
+                  <li>
+                    <span class="label">Secondaria</span>
+                    <strong id="loadout-secondary">{{ lobby.hero.loadout.secondary }}</strong>
+                  </li>
+                  <li>
+                    <span class="label">Gadget</span>
+                    <strong id="loadout-gadget">{{ lobby.hero.loadout.gadget }}</strong>
+                  </li>
+                </ul>
+              </div>
+              <section class="network-overview" aria-label="Stato matchmaking">
+                <div class="stat">
+                  <span class="label">Giocatori online</span>
+                  <strong id="stat-online">{{ lobby.activity.onlinePlayers }}</strong>
+                </div>
+                <div class="stat">
+                  <span class="label">In ricerca</span>
+                  <strong id="stat-searching">{{ lobby.activity.searching }}</strong>
+                </div>
+                <div class="stat">
+                  <span class="label">Match attivi</span>
+                  <strong id="stat-active">{{ lobby.activity.activeMatches }}</strong>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view-stack">
+            <article class="view-panel view-play" data-view-section="play" {% if active_view != 'play' %}hidden{% endif %}>
+              <header class="panel-header">
+                <div>
+                  <h2>Gioca</h2>
+                  <p>Scegli la modalità e lanciati nella Dropzone.</p>
+                </div>
+              </header>
+              <div class="mode-selector" role="radiogroup" aria-label="Selezione modalità">
+                <button type="button" class="mode-card" data-match-mode="solo">
+                  <span class="mode-name">Solo</span>
+                  <span class="mode-detail">Affronta 99 avversari da solo.</span>
+                </button>
+                <button type="button" class="mode-card" data-match-mode="duo">
+                  <span class="mode-name">Duo</span>
+                  <span class="mode-detail">Forma una coppia coordinata.</span>
+                </button>
+                <button type="button" class="mode-card" data-match-mode="squad">
+                  <span class="mode-name">Squad</span>
+                  <span class="mode-detail">Squadra completa da quattro operatori.</span>
+                </button>
+              </div>
+              <div class="queue-panel">
+                <p id="queue-status">Seleziona una modalità per iniziare.</p>
+                <div class="queue-actions">
+                  <button id="play-button" class="cta" disabled>Gioca</button>
+                  <button id="cancel-button" class="ghost" hidden>Annulla</button>
+                </div>
+              </div>
+              <section class="squad-panel" aria-live="polite">
+                <header>
+                  <h3>Lobby</h3>
+                  <p>Visualizza i compagni prima del lancio.</p>
+                </header>
+                <div id="squad" class="squad-list">
+                  <div class="squad-status">
+                    <div class="squad-status-members">
+                      <div class="squad-member">
+                        <div
+                          class="squad-avatar{% if not lobby.hero.cosmetics.equippedOutfit.thumbnailUrl %} no-thumb{% endif %}"
+                          {% if lobby.hero.cosmetics.equippedOutfit.thumbnailUrl %}
+                          style="background-image: url({{ lobby.hero.cosmetics.equippedOutfit.thumbnailUrl }});"
+                          {% endif %}
+                        ></div>
+                        <div class="squad-info">
+                          <span>{{ lobby.hero.displayName }}</span>
+                          <span class="cosmetic-tag">{{ lobby.hero.cosmetics.equippedOutfit.name }}</span>
+                          <span class="cosmetic-sub">Equipaggiamento: {{ lobby.hero.loadout.primary }}</span>
+                        </div>
+                        <span class="squad-role">TU</span>
+                        <span class="squad-member-status">Pronto al lancio</span>
+                      </div>
+                      {% if lobby.practiceWingman %}
+                      <div class="squad-member bot">
+                        <div
+                          class="squad-avatar{% if not lobby.practiceWingman.cosmetics.thumbnailUrl %} no-thumb{% endif %}"
+                          {% if lobby.practiceWingman.cosmetics.thumbnailUrl %}
+                          style="background-image: url({{ lobby.practiceWingman.cosmetics.thumbnailUrl }});"
+                          {% endif %}
+                        ></div>
+                        <div class="squad-info">
+                          <span>{{ lobby.practiceWingman.displayName }}</span>
+                          <span class="cosmetic-tag">{{ lobby.practiceWingman.cosmetics.name }}</span>
+                          {% if lobby.practiceWingman.cosmetics.weaponSkin %}
+                          <span class="cosmetic-sub">Arma: {{ lobby.practiceWingman.cosmetics.weaponSkin.name }}</span>
+                          {% endif %}
+                        </div>
+                        <span class="squad-role">{{ lobby.practiceWingman.role }}</span>
+                        <span class="squad-member-status">{{ lobby.practiceWingman.status }}</span>
+                      </div>
+                      {% endif %}
+                    </div>
+                    <p class="squad-status-message">Seleziona una modalità per formare la squadra.</p>
+                    {% if lobby.practiceWingman %}
+                    <p class="squad-status-meta">
+                      {{ lobby.practiceWingman.displayName }} è pronto come {{ lobby.practiceWingman.role | lower }} se mancano
+                      operatori.
+                    </p>
+                    {% endif %}
+                  </div>
+                </div>
+              </section>
+            </article>
+
+            <article class="view-panel pass-panel" data-view-section="pass" {% if active_view != 'pass' %}hidden{% endif %}>
+              <header class="panel-header">
+                <div>
+                  <h2>Battle Pass</h2>
+                  <p>Livello <strong id="pass-level">{{ lobby.battlePass.level }}</strong></p>
+                </div>
+                <div class="pass-progress">
+                  <div class="pass-progress-bar">
+                    <span id="pass-progress" style="width: {{ lobby.battlePass.progress * 100 }}%"></span>
+                  </div>
+                  <span class="pass-progress-label" id="pass-progress-label">{{ (lobby.battlePass.progress * 100)|round(0) }}% completato</span>
+                </div>
+              </header>
+              <div class="pass-layout">
+                <div class="pass-track-wrapper">
+                  <p class="panel-subtitle">Scorri le 50 soglie e riscatta ricompense estetiche e valute premium.</p>
+                  <ul id="pass-track" class="pass-track" aria-label="Ricompense Battle Pass">
+                {% for tier in lobby.battlePass.tiers %}
+                <li class="pass-card {% if tier.claimed %}claimed{% elif not tier.unlocked %}locked{% endif %}" data-tier-id="{{ tier.id }}">
+                  <button type="button">
+                    <span class="tier-label">Tier {{ tier.tier }}</span>
+                    <figure class="card-thumb">
+                      <img src="{{ tier.thumbnailUrl }}" alt="{{ tier.name }}" loading="lazy" />
+                    </figure>
+                    <div class="card-body">
+                      <strong>{{ tier.name }}</strong>
+                      <span>{{ tier.rarity }}</span>
+                    </div>
+                  </button>
+                </li>
+                {% endfor %}
+              </ul>
+                </div>
+                <aside class="pass-preview" aria-live="polite">
+                  <div class="preview-card">
+                    <figure id="pass-preview-media" class="preview-media">
+                  {% set first_tier = lobby.battlePass.tiers[0] if lobby.battlePass.tiers else None %}
+                  <canvas id="pass-preview-canvas" class="preview-canvas" hidden></canvas>
+                  <img
+                    id="pass-preview-image"
+                    src="{{ first_tier.thumbnailUrl if first_tier else '' }}"
+                    alt="{{ first_tier.name if first_tier else 'Anteprima ricompensa' }}"
+                    {% if not first_tier %}hidden{% endif %}
+                  />
+                </figure>
+                <div class="preview-body">
+                  <h3 id="pass-preview-name">{% if first_tier %}{{ first_tier.name }}{% else %}Nessuna ricompensa selezionata{% endif %}</h3>
+                  <p id="pass-preview-description">{% if first_tier %}{{ first_tier.description }}{% else %}Apri il Battle Pass per visualizzare ricompense reali e requisiti di sblocco.{% endif %}</p>
+                  <dl class="preview-meta">
+                    <div>
+                      <dt>Rarità</dt>
+                      <dd id="pass-preview-rarity">{% if first_tier %}{{ first_tier.rarity }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Stato</dt>
+                      <dd id="pass-preview-status">{% if first_tier %}{% if first_tier.claimed %}Riscattato{% elif first_tier.unlocked %}Disponibile{% else %}Bloccato{% endif %}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Ricompensa</dt>
+                      <dd id="pass-preview-reward">{% if first_tier %}{{ first_tier.reward.type|capitalize }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Tipo Pass</dt>
+                      <dd id="pass-preview-premium">{% if first_tier %}{% if first_tier.premium %}Premium{% else %}Base{% endif %}{% else %}-{% endif %}</dd>
+                    </div>
+                  </dl>
+                  <button id="pass-claim-button" class="cta" {% if first_tier %}data-tier-id="{{ first_tier.id }}"{% else %}disabled{% endif %}>
+                    {% if first_tier %}{% if first_tier.claimed %}Già riscattato{% elif first_tier.unlocked %}Riscatta ricompensa{% elif first_tier.unlockCost %}Sblocca per {{ first_tier.unlockCost }} {{ first_tier.unlockCurrency|upper }}{% else %}Bloccato{% endif %}{% else %}Nessuna ricompensa{% endif %}
+                  </button>
+                </div>
+              </div>
+                </aside>
+              </div>
+            </article>
+
+        <article class="view-panel locker-panel" data-view-section="locker" {% if active_view != 'locker' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Armadietto</h2>
+              <p>Personalizza l'aspetto del tuo operatore con skin, armi e animazioni dedicate.</p>
+            </div>
+          </header>
+          <div class="locker-layout">
+            <aside class="locker-summary">
+              <article class="locker-card">
+                <figure class="locker-thumb">
+                  <img id="locker-outfit-thumb" src="{{ lobby.cosmetics.equippedOutfit.thumbnailUrl }}" alt="Skin equipaggiata" />
+                </figure>
+                <div class="locker-card-body">
+                  <span class="label">Skin equipaggiata</span>
+                  <strong id="locker-outfit">{{ lobby.locker.outfit }}</strong>
+                  <p id="locker-outfit-rarity" class="rarity-pill">{{ lobby.cosmetics.equippedOutfit.rarity }}</p>
+                  <ul class="locker-loadout">
+                    <li><span class="label">Zaino</span><strong id="locker-backbling">{{ lobby.locker.backbling }}</strong></li>
+                    <li><span class="label">Piccone</span><strong id="locker-pickaxe">{{ lobby.locker.pickaxe }}</strong></li>
+                    <li><span class="label">Deltaplano</span><strong id="locker-glider">{{ lobby.locker.glider }}</strong></li>
+                  </ul>
+                </div>
+              </article>
+              <article class="locker-card">
+                <figure class="locker-thumb">
+                  <img id="locker-weapon-thumb" src="{{ lobby.cosmetics.equippedWeaponSkin.thumbnailUrl }}" alt="Skin arma" />
+                </figure>
+                <div class="locker-card-body">
+                  <span class="label">Skin arma</span>
+                  <strong id="locker-wrap">{{ lobby.locker.wrap }}</strong>
+                  <p id="locker-wrap-bonus" class="rarity-pill">+{{ (lobby.cosmetics.equippedWeaponSkin.powerModifier * 100)|round(1) }}% potenza</p>
+                </div>
+              </article>
+              <article class="locker-card">
+                {% set equipped_animation = lobby.cosmetics.animationSets | selectattr('id', 'equalto', lobby.cosmetics.equippedOutfit.animationSetId) | list | first %}
+                <div class="locker-card-body">
+                  <span class="label">Set animazioni</span>
+                  <strong id="animation-name">{{ equipped_animation.name if equipped_animation else 'Nessun set assegnato' }}</strong>
+                  <p id="animation-description">{{ equipped_animation.description if equipped_animation else 'Configura un set animazioni per applicare blending dinamico in partita.' }}</p>
+                </div>
+              </article>
+              <div class="locker-emotes">
+                <h3>Emote rapidi</h3>
+                <ul id="locker-emotes">
+                  {% for emote in lobby.locker.emotes %}
+                  <li>{{ emote }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </aside>
+            <div class="locker-management">
+              <section class="cosmetic-library">
+                <div class="section-heading">
+                  <h3>Skin disponibili</h3>
+                  <span id="outfit-count" class="count-pill">{{ lobby.cosmetics.outfits | length }}</span>
+                </div>
+                <ul id="outfit-list" class="cosmetic-list">
+                  {% for outfit in lobby.cosmetics.outfits %}
+                  <li class="cosmetic-item {% if lobby.cosmetics.equippedOutfit.id == outfit.id %}equipped{% endif %}" data-outfit-id="{{ outfit.id }}">
+                    <img src="{{ outfit.thumbnailUrl }}" alt="{{ outfit.name }}" />
+                    <div class="cosmetic-details">
+                      <strong>{{ outfit.name }}</strong>
+                      <span>{{ outfit.rarity }}</span>
+                    </div>
+                    <button type="button" class="equip-btn" data-equip-outfit="{{ outfit.id }}">Equipaggia</button>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </section>
+              <section class="cosmetic-library">
+                <div class="section-heading">
+                  <h3>Skin arma</h3>
+                  <span id="weapon-count" class="count-pill">{{ lobby.cosmetics.weaponSkins | length }}</span>
+                </div>
+                <ul id="weapon-skin-list" class="cosmetic-list">
+                  {% for skin in lobby.cosmetics.weaponSkins %}
+                  <li class="cosmetic-item {% if lobby.cosmetics.equippedWeaponSkin.id == skin.id %}equipped{% endif %}" data-weapon-id="{{ skin.id }}">
+                    <img src="{{ skin.thumbnailUrl }}" alt="{{ skin.name }}" />
+                    <div class="cosmetic-details">
+                      <strong>{{ skin.name }}</strong>
+                      <span>{{ skin.rarity }}</span>
+                    </div>
+                    <button type="button" class="equip-btn" data-equip-weapon="{{ skin.id }}">Equipaggia</button>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </section>
+              <section class="cosmetic-forms">
+                <div class="form-card">
+                  <h3>Importa nuova skin</h3>
+                  <form id="outfit-import-form" class="cosmetic-form">
+                    <label>Nome
+                      <input type="text" name="name" required />
+                    </label>
+                    <label>URL modello glTF
+                      <input type="url" name="modelUrl" required />
+                      <span class="field-hint">Fornisci l'indirizzo di un modello .glb o .gltf.</span>
+                    </label>
+                    <label>Anteprima (opzionale)
+                      <input type="url" name="thumbnailUrl" />
+                      <span class="field-hint">Immagine promozionale mostrata nelle liste.</span>
+                    </label>
+                    <label>Set animazioni
+                      <select name="animationSetId" id="outfit-animation-set">
+                        {% for animation in lobby.cosmetics.animationSets %}
+                        <option value="{{ animation.id }}" {% if lobby.cosmetics.equippedOutfit.animationSetId == animation.id %}selected{% endif %}>{{ animation.name }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <button type="submit" class="cta">Importa skin</button>
+                  </form>
+                </div>
+                <div class="form-card">
+                  <h3>Importa skin arma</h3>
+                  <form id="weapon-import-form" class="cosmetic-form">
+                    <label>Nome
+                      <input type="text" name="name" required />
+                    </label>
+                    <label>Texture o materiale
+                      <input type="url" name="textureUrl" required />
+                      <span class="field-hint">URL della mappa o del materiale ad alta risoluzione.</span>
+                    </label>
+                    <label>Anteprima (opzionale)
+                      <input type="url" name="thumbnailUrl" />
+                      <span class="field-hint">Immagine da mostrare nelle vetrine.</span>
+                    </label>
+                    <label>Potenziamento (%)
+                      <input type="number" step="0.1" min="0" max="5" name="powerModifier" value="2.0" />
+                    </label>
+                    <button type="submit" class="ghost">Importa skin arma</button>
+                  </form>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="view-panel shop-panel" data-view-section="shop" {% if active_view != 'shop' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Negozio</h2>
+              <p>Offerte aggiornate ogni 24 ore.</p>
+            </div>
+          </header>
+          <div class="shop-layout">
+            <div class="shop-section">
+              <h3>In evidenza</h3>
+              <ul id="shop-featured" class="shop-grid">
+                {% for item in lobby.shop.featured %}
+                <li class="shop-card {% if item.owned %}owned{% endif %}" data-item-id="{{ item.id }}">
+                  <button type="button">
+                    <figure class="card-thumb"><img src="{{ item.thumbnailUrl }}" alt="{{ item.name }}" loading="lazy" /></figure>
+                    <div class="card-body">
+                      <strong>{{ item.name }}</strong>
+                      <span class="rarity">{{ item.rarity }}</span>
+                      <span class="price">{{ item.price }} {{ item.currency|upper }}</span>
+                    </div>
+                  </button>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            <div class="shop-section">
+              <h3>Oggetti giornalieri</h3>
+              <ul id="shop-daily" class="shop-grid">
+                {% for item in lobby.shop.daily %}
+                <li class="shop-card {% if item.owned %}owned{% endif %}" data-item-id="{{ item.id }}">
+                  <button type="button">
+                    <figure class="card-thumb"><img src="{{ item.thumbnailUrl }}" alt="{{ item.name }}" loading="lazy" /></figure>
+                    <div class="card-body">
+                      <strong>{{ item.name }}</strong>
+                      <span class="rarity">{{ item.rarity }}</span>
+                      <span class="price">{{ item.price }} {{ item.currency|upper }}</span>
+                    </div>
+                  </button>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            <aside class="shop-preview" aria-live="polite">
+              <div class="preview-card">
+              {% set first_item = lobby.shop.featured[0] if lobby.shop.featured else (lobby.shop.daily[0] if lobby.shop.daily else None) %}
+              <figure class="preview-media">
+                <canvas id="shop-preview-canvas" class="preview-canvas" hidden></canvas>
+                <img
+                  id="shop-preview-image"
+                  src="{{ first_item.thumbnailUrl if first_item else '' }}"
+                  alt="{{ first_item.name if first_item else 'Anteprima oggetto' }}"
+                  {% if not first_item %}hidden{% endif %}
+                />
+              </figure>
+                <div class="preview-body">
+                  <h3 id="shop-preview-name">{% if first_item %}{{ first_item.name }}{% else %}Nessuna offerta disponibile{% endif %}</h3>
+                  <p id="shop-preview-description">{% if first_item %}{{ first_item.description }}{% else %}Torna più tardi per scoprire nuove offerte e bundle nello store Dropzone.{% endif %}</p>
+                  <dl class="preview-meta">
+                    <div>
+                      <dt>Rarità</dt>
+                      <dd id="shop-preview-rarity">{% if first_item %}{{ first_item.rarity }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Prezzo</dt>
+                      <dd id="shop-preview-price">{% if first_item %}{{ first_item.price }} {{ first_item.currency|upper }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Tipologia</dt>
+                      <dd id="shop-preview-type">{% if first_item %}{{ first_item.rewardType|capitalize }}{% else %}-{% endif %}</dd>
+                    </div>
+                    <div>
+                      <dt>Posseduto</dt>
+                      <dd id="shop-preview-owned">{% if first_item %}{% if first_item.owned %}Sì{% else %}No{% endif %}{% else %}-{% endif %}</dd>
+                    </div>
+                  </dl>
+                  <div class="shop-preview-actions">
+                    <button id="shop-buy-button" class="cta" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
+                      {% if first_item %}{% if first_item.owned %}Già acquistato{% else %}Acquista{% endif %}{% else %}Nessun oggetto disponibile{% endif %}
+                    </button>
+                    <button id="shop-gift-button" class="ghost" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
+                      Regala
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </article>
+
+        <article class="view-panel profile-panel" data-view-section="stats" {% if active_view != 'stats' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Statistiche</h2>
+              <p>Monitoraggio prestazioni Dropzone X.</p>
+            </div>
+          </header>
+          <ul class="profile-stats">
+            <li>
+              <span class="label">Partite giocate</span>
+              <strong id="profile-matches">{{ lobby.profile.matchesPlayed }}</strong>
+            </li>
+            <li>
+              <span class="label">Vittorie</span>
+              <strong id="profile-wins">{{ lobby.profile.wins }}</strong>
+            </li>
+            <li>
+              <span class="label">Win Rate</span>
+              <strong id="profile-winrate">{{ lobby.profile.winRate }}%</strong>
+            </li>
+            <li>
+              <span class="label">Rapporto K/O</span>
+              <strong id="profile-kdr">{{ lobby.profile.kdr }}</strong>
+            </li>
+            <li>
+              <span class="label">Tempo di gioco</span>
+              <strong id="profile-time">{{ (lobby.profile.timePlayedMinutes / 60)|round(1) }} h</strong>
+            </li>
+          </ul>
+        </article>
+
+        <article class="view-panel friends-panel" data-view-section="friends" {% if active_view != 'friends' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Amici</h2>
+              <p>Gestisci la tua squadra e invia inviti.</p>
+            </div>
+          </header>
+          <div class="friends-layout">
+            <ul id="friend-list" class="friend-list">
+              {% for friend in lobby.friends %}
+              <li data-username="{{ friend.username }}">
+                <div class="friend-identity">
+                  <span class="status-dot" data-status="{{ friend.status }}"></span>
+                  <span class="friend-name">{{ friend.username }}</span>
+                  <span class="friend-status">{{ friend.status }}</span>
+                </div>
+                <div class="friend-actions">
+                  <button class="ghost" data-action="invite">Invita</button>
+                  <button class="ghost" data-action="gift">Regala</button>
+                  <button class="ghost" data-action="remove">Rimuovi</button>
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+            <form id="friend-form" class="friend-form">
+              <label class="field">
+                <span>Ricerca nuovo amico</span>
+                <input type="text" name="username" required />
+                <span class="field-hint">Inserisci l'ID esatto del giocatore Dropzone.</span>
+              </label>
+              <button type="submit" class="cta">Invia richiesta</button>
+              <p id="friend-feedback" class="form-feedback" hidden></p>
+            </form>
+          </div>
+        </article>
+
+        <article class="view-panel settings-panel" data-view-section="settings" {% if active_view != 'settings' %}hidden{% endif %}>
+          <header class="panel-header">
+            <div>
+              <h2>Impostazioni</h2>
+              <p>Configura audio, grafica, controlli e accessibilità. Le preferenze vengono salvate automaticamente.</p>
+            </div>
+          </header>
+          <div class="settings-grid">
+            <section class="settings-card">
+              <h3>Account</h3>
+              <p>Email: <strong id="settings-email">{{ lobby.settings.email }}</strong></p>
+              <p>Autenticazione a due fattori: <strong id="settings-2fa">{% if lobby.settings.twoFactor %}Attiva{% else %}Disattivata{% endif %}</strong></p>
+              <p>Newsletter: <strong id="settings-news">{% if lobby.settings.newsletters %}Iscritto{% else %}Non iscritto{% endif %}</strong></p>
+            </section>
+            <section class="settings-card">
+              <h3>Audio</h3>
+              <label class="setting-row">
+                <span>Volume generale</span>
+                <input type="range" id="setting-audio-master" min="0" max="100" value="80" data-setting-key="audio.master" />
+              </label>
+              <label class="setting-row">
+                <span>Musica</span>
+                <input type="range" id="setting-audio-music" min="0" max="100" value="65" data-setting-key="audio.music" />
+              </label>
+              <label class="setting-row">
+                <span>Effetti</span>
+                <input type="range" id="setting-audio-sfx" min="0" max="100" value="90" data-setting-key="audio.sfx" />
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Grafica</h3>
+              <label class="setting-row">
+                <span>Qualità</span>
+                <select id="setting-graphics-quality" data-setting-key="graphics.quality">
+                  <option value="ultra">Ultra</option>
+                  <option value="alto">Alta</option>
+                  <option value="medio">Media</option>
+                  <option value="basso">Bassa</option>
+                </select>
+              </label>
+              <label class="setting-row toggle">
+                <span>V-Sync</span>
+                <input type="checkbox" id="setting-graphics-vsync" data-setting-key="graphics.vsync" checked />
+              </label>
+              <label class="setting-row toggle">
+                <span>Modalità prestazioni</span>
+                <input type="checkbox" id="setting-graphics-performance" data-setting-key="graphics.performance" />
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Comandi</h3>
+              <label class="setting-row">
+                <span>Sensibilità mouse</span>
+                <input type="range" id="setting-controls-sens" min="0" max="100" value="50" data-setting-key="controls.sensitivity" />
+              </label>
+              <label class="setting-row toggle">
+                <span>Inverti asse Y</span>
+                <input type="checkbox" id="setting-controls-invert" data-setting-key="controls.invertY" />
+              </label>
+              <label class="setting-row toggle">
+                <span>Vibrazione controller</span>
+                <input type="checkbox" id="setting-controls-rumble" data-setting-key="controls.rumble" checked />
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Accessibilità</h3>
+              <label class="setting-row">
+                <span>Modalità daltonismo</span>
+                <select id="setting-accessibility-color" data-setting-key="accessibility.colorMode">
+                  <option value="nessuna">Nessuna</option>
+                  <option value="protanopia">Protanopia</option>
+                  <option value="deuteranopia">Deuteranopia</option>
+                  <option value="tritanopia">Tritanopia</option>
+                </select>
+              </label>
+              <label class="setting-row toggle">
+                <span>Sottotitoli</span>
+                <input type="checkbox" id="setting-accessibility-subtitles" data-setting-key="accessibility.subtitles" checked />
+              </label>
+              <label class="setting-row toggle">
+                <span>Contrasto elevato UI</span>
+                <input type="checkbox" id="setting-accessibility-contrast" data-setting-key="accessibility.contrast" />
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Sessione</h3>
+              <button id="logout-button" class="ghost">Esci dall'account</button>
+              <p id="logout-feedback" class="form-feedback" hidden></p>
+            </section>
+          </div>
+        </article>
+      </section>
+    </div>
+    <footer class="status-bar">
+      <span>Backend online · matchmaking automatizzato con bot se necessario.</span>
+    </footer>
+  </div>
+
+    <script id="initial-data" type="application/json">{{ lobby | tojson }}</script>
+    <script src="/static/js/app.js" type="module"></script>
+  </body>
+</html>
