@@ -34,7 +34,7 @@ from .auth import (
 )
 from .cosmetics import CosmeticRepository
 from .database import get_session, init_db, session_scope
-from .matchmaker import Matchmaker
+from .matchmaker import Matchmaker, BOT_NAMES
 from .models import Friendship, Gift, OwnedCosmetic, User, ensure_default_user
 from .progression import PlayerProgression
 
@@ -436,6 +436,27 @@ async def _build_lobby_payload(session: Session, user: User) -> Dict:
                 "presence": presence_state or "offline",
             }
         )
+    practice_outfit = cosmetics.random_outfit()
+    practice_weapon = cosmetics.random_weapon_skin()
+    practice_partner = {
+        "displayName": random.choice(BOT_NAMES),
+        "role": "Supporto IA",
+        "status": "In standby per la simulazione",
+        "isBot": True,
+        "cosmetics": {
+            "name": practice_outfit["name"],
+            "thumbnailUrl": practice_outfit["thumbnailUrl"],
+            "modelUrl": practice_outfit["modelUrl"],
+            "animationSetId": practice_outfit["animationSetId"],
+            "animationBindings": practice_outfit.get("animationBindings", {}),
+            "weaponSkin": practice_weapon,
+        },
+        "loadout": {
+            "primary": practice_weapon["name"],
+            "powerModifier": practice_weapon.get("powerModifier", 0.0),
+        },
+    }
+
     return {
         "hero": {
             "displayName": user.username,
@@ -472,6 +493,7 @@ async def _build_lobby_payload(session: Session, user: User) -> Dict:
             "twoFactor": False,
             "newsletters": True,
         },
+        "practiceWingman": practice_partner,
     }
 
 

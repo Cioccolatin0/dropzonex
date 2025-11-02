@@ -1,10 +1,16 @@
 import {
   ACESFilmicToneMapping,
+  AmbientLight,
   AnimationMixer,
   Box3,
+  BoxGeometry,
   Color,
+  CylinderGeometry,
   DirectionalLight,
+  Group,
   HemisphereLight,
+  Mesh,
+  MeshStandardMaterial,
   PerspectiveCamera,
   Scene,
   Vector3,
@@ -44,6 +50,7 @@ const passLevel = document.getElementById("pass-level");
 const passProgress = document.getElementById("pass-progress");
 const passProgressLabel = document.getElementById("pass-progress-label");
 const passTrack = document.getElementById("pass-track");
+const passPreviewCanvas = document.getElementById("pass-preview-canvas");
 const passPreviewName = document.getElementById("pass-preview-name");
 const passPreviewDescription = document.getElementById("pass-preview-description");
 const passPreviewRarity = document.getElementById("pass-preview-rarity");
@@ -73,6 +80,7 @@ const weaponImportForm = document.getElementById("weapon-import-form");
 const animationSelect = document.getElementById("outfit-animation-set");
 const shopFeatured = document.getElementById("shop-featured");
 const shopDaily = document.getElementById("shop-daily");
+const shopPreviewCanvas = document.getElementById("shop-preview-canvas");
 const shopPreviewImage = document.getElementById("shop-preview-image");
 const shopPreviewName = document.getElementById("shop-preview-name");
 const shopPreviewDescription = document.getElementById("shop-preview-description");
@@ -147,6 +155,10 @@ const state = {
   selectedMode: null,
   preferences: {},
   heroViewer: null,
+  passViewer: null,
+  shopViewer: null,
+  hero: initialLobby?.hero || null,
+  practiceWingman: initialLobby?.practiceWingman || null,
 };
 
 class HeroViewer {
@@ -283,6 +295,241 @@ class HeroViewer {
 
 if (heroCanvas) {
   state.heroViewer = new HeroViewer(heroCanvas);
+}
+
+class ItemViewer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    if (!canvas) {
+      this.renderer = null;
+      return;
+    }
+    this.scene = new Scene();
+    this.scene.background = null;
+    this.renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = SRGBColorSpace;
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
+    this.camera = new PerspectiveCamera(30, 1, 0.05, 50);
+    this.camera.position.set(0, 0.45, 2.2);
+    this.loader = new GLTFLoader();
+    this.clock = new Clock();
+    this.mixer = null;
+    this.currentObject = null;
+    this.currentToken = null;
+    this.spinSpeed = 0.6;
+    this.base = null;
+    this._setupLights();
+    this.resize();
+    window.addEventListener("resize", () => this.resize());
+    this.animate = this.animate.bind(this);
+    requestAnimationFrame(this.animate);
+  }
+
+  _setupLights() {
+    const ambient = new AmbientLight(0x1a2638, 1.15);
+    const key = new DirectionalLight(0xffffff, 0.95);
+    key.position.set(3, 4, 5);
+    const rim = new DirectionalLight(0x68d7ff, 0.6);
+    rim.position.set(-3.5, 3.5, -4);
+    this.scene.add(ambient, key, rim);
+  }
+
+  resize() {
+    if (!this.canvas || !this.canvas.parentElement || !this.renderer) return;
+    const { clientWidth, clientHeight } = this.canvas.parentElement;
+    if (!clientWidth || !clientHeight) return;
+    this.renderer.setSize(clientWidth, clientHeight, false);
+    this.camera.aspect = clientWidth / clientHeight;
+    this.camera.updateProjectionMatrix();
+  }
+
+  clear({ hide = false } = {}) {
+    if (this.currentObject) {
+      this.scene.remove(this.currentObject);
+      this.currentObject = null;
+    }
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer = null;
+    }
+    this.currentToken = null;
+    if (hide && this.canvas) {
+      this.canvas.hidden = true;
+    }
+  }
+
+  load(preview) {
+    if (!this.renderer) return;
+    if (!preview) {
+      this.clear({ hide: true });
+      return;
+    }
+    this.clear();
+    const token = Symbol("item-preview");
+    this.currentToken = token;
+    const blueprint = preview.previewBlueprint
+      ? JSON.parse(JSON.stringify(preview.previewBlueprint))
+      : null;
+    const blueprintSpin = blueprint && typeof blueprint.spinSpeed === "number" ? blueprint.spinSpeed : null;
+    this.spinSpeed = typeof preview.spinSpeed === "number" ? preview.spinSpeed : blueprintSpin || 0.6;
+    const modelUrl = preview.modelUrl || null;
+    if (this.canvas) this.canvas.hidden = false;
+    if (blueprint && blueprint.parts && blueprint.parts.length) {
+      const object = this._buildFromBlueprint(blueprint, preview);
+      this._commitObject(object);
+      return;
+    }
+    if (modelUrl) {
+      this.loader.load(
+        modelUrl,
+        (gltf) => {
+          if (this.currentToken !== token) return;
+          this._applyModel(gltf, preview);
+        },
+        undefined,
+        () => {
+          if (this.currentToken === token) {
+            this.clear({ hide: true });
+          }
+        },
+      );
+      return;
+    }
+    this.clear({ hide: true });
+  }
+
+  _buildFromBlueprint(blueprint, preview) {
+    const group = new Group();
+    const parts = Array.isArray(blueprint.parts) ? blueprint.parts : [];
+    parts.forEach((part) => {
+      let mesh = null;
+      if (part.type === "box") {
+        const size = part.size || [1, 1, 1];
+        mesh = new Mesh(new BoxGeometry(size[0], size[1], size[2]), this._createMaterial(part, preview));
+      } else if (part.type === "cylinder") {
+        const radiusTop = part.radiusTop ?? part.radius ?? 0.05;
+        const radiusBottom = part.radiusBottom ?? part.radius ?? radiusTop;
+        const height = part.height ?? 0.2;
+        const radial = part.radialSegments ?? 36;
+        mesh = new Mesh(new CylinderGeometry(radiusTop, radiusBottom, height, radial), this._createMaterial(part, preview));
+      } else {
+        return;
+      }
+      const position = part.position || [0, 0, 0];
+      mesh.position.set(position[0] || 0, position[1] || 0, position[2] || 0);
+      const rotation = part.rotation || [0, 0, 0];
+      mesh.rotation.set(rotation[0] || 0, rotation[1] || 0, rotation[2] || 0);
+      group.add(mesh);
+    });
+    if (blueprint.scale) {
+      group.scale.setScalar(blueprint.scale);
+    }
+    if (blueprint.rotation) {
+      group.rotation.set(
+        blueprint.rotation[0] || 0,
+        blueprint.rotation[1] || 0,
+        blueprint.rotation[2] || 0,
+      );
+    }
+    group.userData.targetHeight = blueprint.targetHeight || 0.85;
+    return group;
+  }
+
+  _createMaterial(part, preview) {
+    const baseColor = part.color || preview.accentColor || "#f2f5ff";
+    const material = new MeshStandardMaterial({
+      color: new Color(baseColor),
+      roughness: part.roughness ?? 0.32,
+      metalness: part.metalness ?? 0.48,
+    });
+    const emissiveColor = part.emissive || preview.emissive || null;
+    if (emissiveColor) {
+      material.emissive = new Color(emissiveColor);
+      material.emissiveIntensity = part.emissiveIntensity ?? preview.emissiveIntensity ?? 0.65;
+    }
+    return material;
+  }
+
+  _ensureBase() {
+    if (this.base) return;
+    const geometry = new CylinderGeometry(0.82, 0.82, 0.04, 48);
+    const material = new MeshStandardMaterial({
+      color: new Color("#060d18"),
+      roughness: 0.6,
+      metalness: 0.18,
+    });
+    this.base = new Mesh(geometry, material);
+    this.base.position.y = 0;
+    this.scene.add(this.base);
+  }
+
+  _commitObject(object) {
+    if (!object) return;
+    const bounding = new Box3().setFromObject(object);
+    const size = bounding.getSize(new Vector3());
+    const center = bounding.getCenter(new Vector3());
+    object.position.sub(center);
+    const targetHeight = object.userData?.targetHeight || 0.85;
+    const scale = size.y > 0 ? targetHeight / size.y : 1;
+    object.scale.multiplyScalar(scale);
+    const postBox = new Box3().setFromObject(object);
+    object.position.y -= postBox.min.y;
+    this._ensureBase();
+    this.scene.add(object);
+    this.currentObject = object;
+  }
+
+  _applyModel(gltf, preview) {
+    const model = gltf.scene;
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = false;
+        child.receiveShadow = false;
+        if (preview?.accentColor && child.material) {
+          child.material = child.material.clone();
+          const tint = new Color(preview.accentColor);
+          if (child.material.color) {
+            child.material.color.lerp(tint, 0.6);
+          } else {
+            child.material.color = tint;
+          }
+        }
+        if (preview?.emissive && child.material) {
+          child.material.emissive = new Color(preview.emissive);
+          child.material.emissiveIntensity = 0.6;
+        }
+      }
+    });
+    if (gltf.animations && gltf.animations.length) {
+      this.mixer = new AnimationMixer(model);
+      const clip = gltf.animations[0];
+      this.mixer.clipAction(clip).play();
+    }
+    this._commitObject(model);
+  }
+
+  animate() {
+    if (!this.renderer) return;
+    const delta = this.clock.getDelta();
+    if (this.mixer) {
+      this.mixer.update(delta);
+    }
+    if (this.currentObject) {
+      this.currentObject.rotation.y += delta * this.spinSpeed;
+    }
+    this.renderer.render(this.scene, this.camera);
+    requestAnimationFrame(this.animate);
+  }
+}
+
+if (passPreviewCanvas) {
+  state.passViewer = new ItemViewer(passPreviewCanvas);
+}
+
+if (shopPreviewCanvas) {
+  state.shopViewer = new ItemViewer(shopPreviewCanvas);
 }
 
 function cloneDefaultPreferences() {
@@ -585,6 +832,57 @@ function formatShopReward(item) {
   }
 }
 
+function buildPreviewPayload({ preview, reward, fallbackThumbnail }) {
+  const payload = preview ? JSON.parse(JSON.stringify(preview)) : {};
+  if (reward) {
+    if (reward.previewBlueprint && !payload.previewBlueprint) {
+      payload.previewBlueprint = reward.previewBlueprint;
+    }
+    if (reward.accentColor && !payload.accentColor) {
+      payload.accentColor = reward.accentColor;
+    }
+    if (reward.modelUrl && !payload.modelUrl) {
+      payload.modelUrl = reward.modelUrl;
+    }
+    if (reward.emissive && !payload.emissive) {
+      payload.emissive = reward.emissive;
+    }
+    if (reward.spinSpeed && !payload.spinSpeed) {
+      payload.spinSpeed = reward.spinSpeed;
+    }
+    if (reward.thumbnailUrl && !payload.thumbnailUrl) {
+      payload.thumbnailUrl = reward.thumbnailUrl;
+    }
+  }
+  if (fallbackThumbnail && !payload.thumbnailUrl) {
+    payload.thumbnailUrl = fallbackThumbnail;
+  }
+  return payload;
+}
+
+function renderPreviewMedia({ viewer, canvas, image, preview, fallbackUrl, alt }) {
+  const hasViewer = Boolean(viewer && typeof viewer.load === "function");
+  const hasMedia = Boolean(hasViewer && preview && (preview.previewBlueprint || preview.modelUrl));
+  const resolvedFallback = fallbackUrl || preview?.thumbnailUrl || "";
+  if (hasMedia && hasViewer) {
+    viewer.load(preview);
+    if (canvas) canvas.hidden = false;
+    if (image) {
+      if (resolvedFallback) image.src = resolvedFallback;
+      image.alt = alt || "Anteprima";
+      image.hidden = true;
+    }
+  } else {
+    if (viewer) viewer.clear({ hide: true });
+    if (canvas) canvas.hidden = true;
+    if (image) {
+      if (resolvedFallback) image.src = resolvedFallback;
+      image.alt = alt || "Anteprima";
+      image.hidden = false;
+    }
+  }
+}
+
 function selectMatchMode(mode, options = {}) {
   const valid = MODE_CONFIG[mode] ? mode : null;
   state.selectedMode = valid;
@@ -630,7 +928,7 @@ function setQueueSearching() {
     cancelButton.hidden = false;
     cancelButton.disabled = false;
   }
-  renderSquadPlaceholder();
+  renderSquadStatus();
 }
 
 function initialise() {
@@ -722,6 +1020,8 @@ function hydrateLobby(lobby) {
   state.cosmetics = lobby.cosmetics || null;
   state.battlePass = lobby.battlePass || null;
   state.shop = lobby.shop || null;
+  state.hero = lobby.hero || state.hero;
+  state.practiceWingman = lobby.practiceWingman || state.practiceWingman;
   heroName.textContent = lobby.hero.displayName;
   if (heroTitle) {
     heroTitle.textContent = lobby.hero.title;
@@ -783,6 +1083,9 @@ function hydrateLobby(lobby) {
     if (viewerOutfit) {
       state.heroViewer.loadOutfit(viewerOutfit);
     }
+  }
+  if (!state.sessionId && (!state.latestSession || state.latestSession.status === "idle")) {
+    renderSquadStatus();
   }
 }
 
@@ -927,11 +1230,16 @@ function renderSession(session) {
       cancelButton.hidden = false;
       cancelButton.disabled = false;
     }
-    renderSquadPlaceholder(session);
+    renderSquadStatus(session);
   } else if (session.status === "matched" && session.match) {
-    if (queueStatus) queueStatus.textContent = `Match trovato: ${session.match.mode} · ${session.match.map}`;
+    const practice = Boolean(session.match.practiceMatch);
+    if (queueStatus) {
+      queueStatus.textContent = practice
+        ? `Sessione di prova pronta: ${session.match.map}`
+        : `Match trovato: ${session.match.mode} · ${session.match.map}`;
+    }
     if (playButton) {
-      playButton.textContent = "Entra nel match";
+      playButton.textContent = practice ? "Avvia simulazione" : "Entra nel match";
       playButton.disabled = false;
     }
     if (cancelButton) {
@@ -940,10 +1248,14 @@ function renderSession(session) {
     }
     renderSquad(extractSquadMembers(session.match, session));
   } else if (session.status === "playing") {
-    if (queueStatus) queueStatus.textContent = "Sessione avviata. Buona fortuna!";
+    const practice = Boolean(session.match?.practiceMatch);
+    if (queueStatus)
+      queueStatus.textContent = practice
+        ? "Simulazione in corso. Buona fortuna!"
+        : "Sessione avviata. Buona fortuna!";
     if (playButton) {
       playButton.disabled = false;
-      playButton.textContent = "Avvia";
+      playButton.textContent = practice ? "Continua simulazione" : "Avvia";
     }
     if (cancelButton) cancelButton.hidden = true;
     renderSquad(session.match ? extractSquadMembers(session.match, session) : null);
@@ -967,78 +1279,158 @@ function extractSquadMembers(match, session) {
   return match.squad || null;
 }
 
+function createSquadMemberElement(member = {}, options = {}) {
+  const item = document.createElement("div");
+  const isBot = options.forceBot ?? member.isBot ?? false;
+  item.className = "squad-member";
+  if (isBot) {
+    item.classList.add("bot");
+  }
+
+  const avatar = document.createElement("div");
+  avatar.className = "squad-avatar";
+  const thumb =
+    options.thumbnail || member.cosmetics?.thumbnailUrl || member.cosmetics?.thumbnail || member.cosmetics?.iconUrl;
+  if (thumb) {
+    avatar.style.backgroundImage = `url(${thumb})`;
+  } else {
+    avatar.classList.add("no-thumb");
+  }
+
+  const info = document.createElement("div");
+  info.className = "squad-info";
+  const name = document.createElement("span");
+  name.textContent = options.displayName || member.displayName || "Operatore";
+  info.appendChild(name);
+
+  const cosmeticName = options.cosmeticName || member.cosmetics?.name;
+  if (cosmeticName) {
+    const detail = document.createElement("span");
+    detail.className = "cosmetic-tag";
+    detail.textContent = cosmeticName;
+    info.appendChild(detail);
+  }
+
+  if (options.subLabel) {
+    const sub = document.createElement("span");
+    sub.className = "cosmetic-sub";
+    sub.textContent = options.subLabel;
+    info.appendChild(sub);
+  }
+
+  const badge = document.createElement("span");
+  badge.className = "squad-role";
+  badge.textContent = options.role || member.role || (isBot ? "BOT" : "GIOCATORE");
+
+  item.appendChild(avatar);
+  item.appendChild(info);
+  item.appendChild(badge);
+
+  const statusText = options.statusText || member.statusText;
+  if (statusText) {
+    const status = document.createElement("span");
+    status.className = "squad-member-status";
+    status.textContent = statusText;
+    item.appendChild(status);
+  }
+
+  return item;
+}
+
 function renderSquad(squad) {
   squadContainer.innerHTML = "";
   if (!squad || squad.length === 0) {
-    renderSquadPlaceholder();
+    renderSquadStatus();
     return;
   }
 
   squad.forEach((member) => {
-    const item = document.createElement("div");
-    item.className = `squad-member${member.isBot ? " bot" : ""}`;
-
-    const avatar = document.createElement("div");
-    avatar.className = "squad-avatar";
-    const thumb = member.cosmetics?.thumbnailUrl || member.cosmetics?.thumbnail;
-    if (thumb) {
-      avatar.style.backgroundImage = `url(${thumb})`;
-    } else {
-      avatar.classList.add("placeholder");
-    }
-
-    const info = document.createElement("div");
-    info.className = "squad-info";
-    const name = document.createElement("span");
-    name.textContent = member.displayName;
-    info.appendChild(name);
-    if (member.cosmetics?.name) {
-      const detail = document.createElement("span");
-      detail.className = "cosmetic-tag";
-      detail.textContent = member.cosmetics.name;
-      info.appendChild(detail);
-    }
-
-    const badge = document.createElement("span");
-    badge.className = "squad-role";
-    badge.textContent = member.isBot ? "BOT" : "GIOCATORE";
-
-    item.appendChild(avatar);
-    item.appendChild(info);
-    item.appendChild(badge);
-    squadContainer.appendChild(item);
+    const behavior = member.behavior
+      ? member.behavior.charAt(0).toUpperCase() + member.behavior.slice(1)
+      : null;
+    const statusText = behavior ? `Stile ${behavior}` : undefined;
+    const element = createSquadMemberElement(member, { statusText });
+    squadContainer.appendChild(element);
   });
 }
 
-function renderSquadPlaceholder(session) {
+function renderSquadStatus(session) {
   squadContainer.innerHTML = "";
   const wrapper = document.createElement("div");
-  wrapper.className = "squad-placeholder";
+  wrapper.className = "squad-status";
 
-  const heading = document.createElement("strong");
-  const activeLabel = session?.modeLabel || (state.selectedMode && MODE_CONFIG[state.selectedMode]?.label) || "Preparazione";
-  heading.textContent = `Modalità ${activeLabel}`;
-  wrapper.appendChild(heading);
+  const membersRow = document.createElement("div");
+  membersRow.className = "squad-status-members";
 
-  const message = document.createElement("span");
+  const heroData = state.hero || initialLobby?.hero;
+  if (heroData) {
+    const heroOutfit = heroData.cosmetics?.equippedOutfit || heroData.outfit || {};
+    const heroMember = createSquadMemberElement(
+      {
+        displayName: heroData.displayName,
+        cosmetics: heroOutfit,
+        isBot: false,
+      },
+      {
+        role: "TU",
+        cosmeticName: heroOutfit.name,
+        statusText: session?.status === "waiting" ? "Pronto al lancio" : "Disponibile",
+        subLabel: heroData.loadout?.primary ? `Equipaggiamento: ${heroData.loadout.primary}` : undefined,
+      }
+    );
+    membersRow.appendChild(heroMember);
+  }
+
+  if (state.practiceWingman) {
+    const wingman = state.practiceWingman;
+    const wingmanCosmetics = wingman.cosmetics || {};
+    const wingmanMember = createSquadMemberElement(
+      {
+        displayName: wingman.displayName,
+        cosmetics: wingmanCosmetics,
+        isBot: true,
+      },
+      {
+        role: wingman.role || "SUPPORTO IA",
+        cosmeticName: wingmanCosmetics.name,
+        statusText: wingman.status,
+        subLabel: wingmanCosmetics.weaponSkin ? `Arma: ${wingmanCosmetics.weaponSkin.name}` : undefined,
+      }
+    );
+    membersRow.appendChild(wingmanMember);
+  }
+
+  wrapper.appendChild(membersRow);
+
+  const message = document.createElement("p");
+  message.className = "squad-status-message";
   if (session && session.status === "waiting") {
     const position = session.queuePosition || 1;
     const queueSize = Math.max(session.queueSize || 0, position);
-    message.textContent = `Posizione ${position} su ${queueSize}. In attesa di operatori per completare la squadra.`;
+    const label = session.modeLabel || (session.mode && MODE_CONFIG[session.mode]?.label) || "Dropzone";
+    message.textContent = `Ricerca ${label} · posizione ${position} su ${queueSize}.`;
   } else if (state.selectedMode) {
-    const modeLabel = MODE_CONFIG[state.selectedMode]?.label || "selezionata";
-    message.textContent = `Premi \"Avvia\" per cercare una partita ${modeLabel}.`;
+    const modeLabel = MODE_CONFIG[state.selectedMode]?.label || "Dropzone";
+    message.textContent = `Premi "Gioca" per avviare una partita ${modeLabel}.`;
   } else {
-    message.textContent = "Seleziona una modalità per iniziare il matchmaking.";
+    message.textContent = "Seleziona una modalità per formare la squadra.";
   }
   wrapper.appendChild(message);
 
-  const searching = session?.playersSearching;
-  if (searching && searching > 1) {
-    const meta = document.createElement("span");
-    meta.className = "squad-placeholder-meta";
-    meta.textContent = `${searching} operatori sono già in coda.`;
-    wrapper.appendChild(meta);
+  if (session?.playersSearching && session.playersSearching > 1) {
+    const queueMeta = document.createElement("p");
+    queueMeta.className = "squad-status-meta";
+    queueMeta.textContent = `${session.playersSearching} operatori sono attualmente in coda.`;
+    wrapper.appendChild(queueMeta);
+  }
+
+  if (state.practiceWingman) {
+    const practiceMeta = document.createElement("p");
+    practiceMeta.className = "squad-status-meta";
+    practiceMeta.textContent = `${state.practiceWingman.displayName} si unirà come ${
+      state.practiceWingman.role?.toLowerCase() || "supporto IA"
+    } se la squadra necessita di rinforzi.`;
+    wrapper.appendChild(practiceMeta);
   }
 
   squadContainer.appendChild(wrapper);
@@ -1080,7 +1472,7 @@ function resetQueue() {
     cancelButton.hidden = true;
     cancelButton.disabled = false;
   }
-  renderSquadPlaceholder();
+  renderSquadStatus();
   updatePlayButtonIdle();
 }
 
@@ -1175,18 +1567,22 @@ function updatePassPreview(tier) {
     passClaimButton.disabled = true;
     passClaimButton.dataset.tierId = "";
     passClaimButton.dataset.unlock = "false";
-    passClaimButton.textContent = "Seleziona un tier";
-    if (passPreviewName) passPreviewName.textContent = "Seleziona una ricompensa";
+    passClaimButton.textContent = "Nessuna ricompensa";
+    if (passPreviewName) passPreviewName.textContent = "Nessuna ricompensa selezionata";
     if (passPreviewDescription)
-      passPreviewDescription.textContent = "Scegli un tier del Battle Pass per visualizzare dettagli e requisiti.";
+      passPreviewDescription.textContent = "Apri un tier del Battle Pass per scoprire dettagli e requisiti.";
     if (passPreviewRarity) passPreviewRarity.textContent = "-";
     if (passPreviewStatus) passPreviewStatus.textContent = "-";
     if (passPreviewReward) passPreviewReward.textContent = "-";
     if (passPreviewPremium) passPreviewPremium.textContent = "-";
-    if (passPreviewImage && passPreviewImage.tagName === "IMG") {
-      passPreviewImage.src = "";
-      passPreviewImage.alt = "Anteprima ricompensa";
-    }
+    renderPreviewMedia({
+      viewer: state.passViewer,
+      canvas: passPreviewCanvas,
+      image: passPreviewImage,
+      preview: null,
+      fallbackUrl: "",
+      alt: "Anteprima ricompensa",
+    });
     return;
   }
 
@@ -1202,10 +1598,19 @@ function updatePassPreview(tier) {
   }
   if (passPreviewReward) passPreviewReward.textContent = formatBattlePassReward(tier);
   if (passPreviewPremium) passPreviewPremium.textContent = tier.premium ? "Premium" : "Base";
-  if (passPreviewImage && passPreviewImage.tagName === "IMG") {
-    passPreviewImage.src = tier.thumbnailUrl;
-    passPreviewImage.alt = tier.name;
-  }
+  const previewData = buildPreviewPayload({
+    preview: tier.preview,
+    reward: tier.reward,
+    fallbackThumbnail: tier.thumbnailUrl,
+  });
+  renderPreviewMedia({
+    viewer: state.passViewer,
+    canvas: passPreviewCanvas,
+    image: passPreviewImage,
+    preview: previewData,
+    fallbackUrl: previewData.thumbnailUrl || tier.thumbnailUrl,
+    alt: tier.name,
+  });
 
   const requiresUnlock = !tier.unlocked && tier.unlockCost && tier.unlockCurrency;
   passClaimButton.dataset.tierId = tier.id;
@@ -1667,18 +2072,22 @@ function updateShopPreview(item) {
       shopGiftButton.disabled = true;
       shopGiftButton.dataset.itemId = "";
     }
-    if (shopPreviewName) shopPreviewName.textContent = "Seleziona un oggetto";
+    if (shopPreviewName) shopPreviewName.textContent = "Nessuna offerta disponibile";
     if (shopPreviewDescription)
-      shopPreviewDescription.textContent = "Seleziona un oggetto per visualizzarne la ricompensa e il costo.";
+      shopPreviewDescription.textContent = "Torna più tardi per scoprire nuove offerte nello store Dropzone.";
     if (shopPreviewRarity) shopPreviewRarity.textContent = "-";
     if (shopPreviewPrice) shopPreviewPrice.textContent = "-";
     if (shopPreviewType) shopPreviewType.textContent = "-";
     if (shopPreviewOwned) shopPreviewOwned.textContent = "-";
-    if (shopPreviewImage && shopPreviewImage.tagName === "IMG") {
-      shopPreviewImage.src = "";
-      shopPreviewImage.alt = "Anteprima oggetto";
-    }
-    shopBuyButton.textContent = "Seleziona un oggetto";
+    renderPreviewMedia({
+      viewer: state.shopViewer,
+      canvas: shopPreviewCanvas,
+      image: shopPreviewImage,
+      preview: null,
+      fallbackUrl: "",
+      alt: "Anteprima oggetto",
+    });
+    shopBuyButton.textContent = "Nessun oggetto";
     return;
   }
 
@@ -1688,10 +2097,19 @@ function updateShopPreview(item) {
   if (shopPreviewPrice) shopPreviewPrice.textContent = `${item.price} ${String(item.currency || "").toUpperCase()}`;
   if (shopPreviewType) shopPreviewType.textContent = formatShopReward(item);
   if (shopPreviewOwned) shopPreviewOwned.textContent = item.owned ? "Sì" : "No";
-  if (shopPreviewImage && shopPreviewImage.tagName === "IMG") {
-    shopPreviewImage.src = item.thumbnailUrl;
-    shopPreviewImage.alt = item.name;
-  }
+  const previewData = buildPreviewPayload({
+    preview: item.preview,
+    reward: null,
+    fallbackThumbnail: item.thumbnailUrl,
+  });
+  renderPreviewMedia({
+    viewer: state.shopViewer,
+    canvas: shopPreviewCanvas,
+    image: shopPreviewImage,
+    preview: previewData,
+    fallbackUrl: previewData.thumbnailUrl || item.thumbnailUrl,
+    alt: item.name,
+  });
   shopBuyButton.dataset.itemId = item.id;
   shopBuyButton.disabled = Boolean(item.owned);
   shopBuyButton.textContent = item.owned ? "Già acquistato" : "Acquista";

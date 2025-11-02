@@ -71,6 +71,7 @@ class Match:
     capacity: int
     started_at: Optional[float] = None
     map_layout: Optional[Dict] = None
+    is_practice: bool = False
 
 
 class Matchmaker:
@@ -274,8 +275,16 @@ class Matchmaker:
     async def _create_match(self, participants: List[PlayerSession], mode: str, rule: Dict[str, object]) -> None:
         match_id = str(uuid.uuid4())
         mode, map_name = random.choice(GAME_MODES)
-        capacity = int(rule["players_per_match"])
-        human_sessions = list(participants)[:capacity]
+        max_capacity = int(rule["players_per_match"])
+        human_sessions = list(participants)[:max_capacity]
+        min_team = int(rule["team_size"])
+        match_capacity = max_capacity
+        if len(human_sessions) == 1:
+            match_capacity = max(2, min_team + 1)
+        elif len(human_sessions) <= min_team:
+            match_capacity = max(min_team * 2, len(human_sessions) + min_team)
+        match_capacity = min(match_capacity, max_capacity)
+        is_practice = match_capacity < max_capacity
         squads: List[Dict] = []
 
         def ensure_squad(index: int) -> Dict:
@@ -312,8 +321,8 @@ class Matchmaker:
                     queue.remove(session.session_id)
 
         current_players = len(human_sessions)
-        if current_players < capacity:
-            slots_remaining = capacity - current_players
+        if current_players < match_capacity:
+            slots_remaining = match_capacity - current_players
             random.shuffle(BOT_NAMES)
             for slot in range(slots_remaining):
                 squad_index = (current_players + slot) // int(rule["team_size"])
@@ -328,15 +337,16 @@ class Matchmaker:
                 bot_member["behavior"] = random.choice(["aggressive", "balanced", "defensive"])
                 squad["members"].append(bot_member)
 
-        map_layout = self._generate_battlefield(len(squads), capacity)
+        map_layout = self._generate_battlefield(len(squads), match_capacity)
         match = Match(
             match_id=match_id,
             squads=squads,
             mode=mode,
             map_name=map_name,
             created_at=time.time(),
-            capacity=capacity,
+            capacity=match_capacity,
             map_layout=map_layout,
+            is_practice=is_practice,
         )
         self._matches[match_id] = match
 
@@ -442,6 +452,7 @@ class Matchmaker:
             "capacity": match.capacity,
             "startedAt": match.started_at,
             "playerCount": total_members,
+            "practiceMatch": match.is_practice,
         }
         if perspective and perspective.squad_id:
             payload["playerSquadId"] = perspective.squad_id

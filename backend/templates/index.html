@@ -185,7 +185,51 @@
                   <p>Visualizza i compagni prima del lancio.</p>
                 </header>
                 <div id="squad" class="squad-list">
-                  <p>In attesa di comporre la squadra...</p>
+                  <div class="squad-status">
+                    <div class="squad-status-members">
+                      <div class="squad-member">
+                        <div
+                          class="squad-avatar{% if not lobby.hero.cosmetics.equippedOutfit.thumbnailUrl %} no-thumb{% endif %}"
+                          {% if lobby.hero.cosmetics.equippedOutfit.thumbnailUrl %}
+                          style="background-image: url({{ lobby.hero.cosmetics.equippedOutfit.thumbnailUrl }});"
+                          {% endif %}
+                        ></div>
+                        <div class="squad-info">
+                          <span>{{ lobby.hero.displayName }}</span>
+                          <span class="cosmetic-tag">{{ lobby.hero.cosmetics.equippedOutfit.name }}</span>
+                          <span class="cosmetic-sub">Equipaggiamento: {{ lobby.hero.loadout.primary }}</span>
+                        </div>
+                        <span class="squad-role">TU</span>
+                        <span class="squad-member-status">Pronto al lancio</span>
+                      </div>
+                      {% if lobby.practiceWingman %}
+                      <div class="squad-member bot">
+                        <div
+                          class="squad-avatar{% if not lobby.practiceWingman.cosmetics.thumbnailUrl %} no-thumb{% endif %}"
+                          {% if lobby.practiceWingman.cosmetics.thumbnailUrl %}
+                          style="background-image: url({{ lobby.practiceWingman.cosmetics.thumbnailUrl }});"
+                          {% endif %}
+                        ></div>
+                        <div class="squad-info">
+                          <span>{{ lobby.practiceWingman.displayName }}</span>
+                          <span class="cosmetic-tag">{{ lobby.practiceWingman.cosmetics.name }}</span>
+                          {% if lobby.practiceWingman.cosmetics.weaponSkin %}
+                          <span class="cosmetic-sub">Arma: {{ lobby.practiceWingman.cosmetics.weaponSkin.name }}</span>
+                          {% endif %}
+                        </div>
+                        <span class="squad-role">{{ lobby.practiceWingman.role }}</span>
+                        <span class="squad-member-status">{{ lobby.practiceWingman.status }}</span>
+                      </div>
+                      {% endif %}
+                    </div>
+                    <p class="squad-status-message">Seleziona una modalità per formare la squadra.</p>
+                    {% if lobby.practiceWingman %}
+                    <p class="squad-status-meta">
+                      {{ lobby.practiceWingman.displayName }} è pronto come {{ lobby.practiceWingman.role | lower }} se mancano
+                      operatori.
+                    </p>
+                    {% endif %}
+                  </div>
                 </div>
               </section>
             </article>
@@ -227,15 +271,17 @@
                   <div class="preview-card">
                     <figure id="pass-preview-media" class="preview-media">
                   {% set first_tier = lobby.battlePass.tiers[0] if lobby.battlePass.tiers else None %}
-                  {% if first_tier %}
-                  <img id="pass-preview-image" src="{{ first_tier.thumbnailUrl }}" alt="Anteprima ricompensa" />
-                  {% else %}
-                  <div id="pass-preview-image" class="preview-placeholder"></div>
-                  {% endif %}
+                  <canvas id="pass-preview-canvas" class="preview-canvas" hidden></canvas>
+                  <img
+                    id="pass-preview-image"
+                    src="{{ first_tier.thumbnailUrl if first_tier else '' }}"
+                    alt="{{ first_tier.name if first_tier else 'Anteprima ricompensa' }}"
+                    {% if not first_tier %}hidden{% endif %}
+                  />
                 </figure>
                 <div class="preview-body">
-                  <h3 id="pass-preview-name">{% if first_tier %}{{ first_tier.name }}{% else %}Seleziona una ricompensa{% endif %}</h3>
-                  <p id="pass-preview-description">{% if first_tier %}{{ first_tier.description }}{% else %}Visualizza i dettagli di una ricompensa del Battle Pass per scoprire come ottenerla.{% endif %}</p>
+                  <h3 id="pass-preview-name">{% if first_tier %}{{ first_tier.name }}{% else %}Nessuna ricompensa selezionata{% endif %}</h3>
+                  <p id="pass-preview-description">{% if first_tier %}{{ first_tier.description }}{% else %}Apri il Battle Pass per visualizzare ricompense reali e requisiti di sblocco.{% endif %}</p>
                   <dl class="preview-meta">
                     <div>
                       <dt>Rarità</dt>
@@ -255,7 +301,7 @@
                     </div>
                   </dl>
                   <button id="pass-claim-button" class="cta" {% if first_tier %}data-tier-id="{{ first_tier.id }}"{% else %}disabled{% endif %}>
-                    {% if first_tier %}{% if first_tier.claimed %}Già riscattato{% elif first_tier.unlocked %}Riscatta ricompensa{% elif first_tier.unlockCost %}Sblocca per {{ first_tier.unlockCost }} {{ first_tier.unlockCurrency|upper }}{% else %}Bloccato{% endif %}{% else %}Seleziona un tier{% endif %}
+                    {% if first_tier %}{% if first_tier.claimed %}Già riscattato{% elif first_tier.unlocked %}Riscatta ricompensa{% elif first_tier.unlockCost %}Sblocca per {{ first_tier.unlockCost }} {{ first_tier.unlockCurrency|upper }}{% else %}Bloccato{% endif %}{% else %}Nessuna ricompensa{% endif %}
                   </button>
                 </div>
               </div>
@@ -359,10 +405,12 @@
                       <input type="text" name="name" required />
                     </label>
                     <label>URL modello glTF
-                      <input type="url" name="modelUrl" required placeholder="https://.../model.glb" />
+                      <input type="url" name="modelUrl" required />
+                      <span class="field-hint">Fornisci l'indirizzo di un modello .glb o .gltf.</span>
                     </label>
                     <label>Anteprima (opzionale)
-                      <input type="url" name="thumbnailUrl" placeholder="https://.../preview.jpg" />
+                      <input type="url" name="thumbnailUrl" />
+                      <span class="field-hint">Immagine promozionale mostrata nelle liste.</span>
                     </label>
                     <label>Set animazioni
                       <select name="animationSetId" id="outfit-animation-set">
@@ -381,10 +429,12 @@
                       <input type="text" name="name" required />
                     </label>
                     <label>Texture o materiale
-                      <input type="url" name="textureUrl" required placeholder="https://.../texture.jpg" />
+                      <input type="url" name="textureUrl" required />
+                      <span class="field-hint">URL della mappa o del materiale ad alta risoluzione.</span>
                     </label>
                     <label>Anteprima (opzionale)
-                      <input type="url" name="thumbnailUrl" placeholder="https://.../preview.jpg" />
+                      <input type="url" name="thumbnailUrl" />
+                      <span class="field-hint">Immagine da mostrare nelle vetrine.</span>
                     </label>
                     <label>Potenziamento (%)
                       <input type="number" step="0.1" min="0" max="5" name="powerModifier" value="2.0" />
@@ -441,17 +491,19 @@
             </div>
             <aside class="shop-preview" aria-live="polite">
               <div class="preview-card">
-                {% set first_item = lobby.shop.featured[0] if lobby.shop.featured else (lobby.shop.daily[0] if lobby.shop.daily else None) %}
-                <figure class="preview-media">
-                  {% if first_item %}
-                  <img id="shop-preview-image" src="{{ first_item.thumbnailUrl }}" alt="Anteprima oggetto" />
-                  {% else %}
-                  <div id="shop-preview-image" class="preview-placeholder"></div>
-                  {% endif %}
-                </figure>
+              {% set first_item = lobby.shop.featured[0] if lobby.shop.featured else (lobby.shop.daily[0] if lobby.shop.daily else None) %}
+              <figure class="preview-media">
+                <canvas id="shop-preview-canvas" class="preview-canvas" hidden></canvas>
+                <img
+                  id="shop-preview-image"
+                  src="{{ first_item.thumbnailUrl if first_item else '' }}"
+                  alt="{{ first_item.name if first_item else 'Anteprima oggetto' }}"
+                  {% if not first_item %}hidden{% endif %}
+                />
+              </figure>
                 <div class="preview-body">
-                  <h3 id="shop-preview-name">{% if first_item %}{{ first_item.name }}{% else %}Seleziona un oggetto{% endif %}</h3>
-                  <p id="shop-preview-description">{% if first_item %}{{ first_item.description }}{% else %}Seleziona un oggetto per visualizzarne i dettagli e procedere all'acquisto.{% endif %}</p>
+                  <h3 id="shop-preview-name">{% if first_item %}{{ first_item.name }}{% else %}Nessuna offerta disponibile{% endif %}</h3>
+                  <p id="shop-preview-description">{% if first_item %}{{ first_item.description }}{% else %}Torna più tardi per scoprire nuove offerte e bundle nello store Dropzone.{% endif %}</p>
                   <dl class="preview-meta">
                     <div>
                       <dt>Rarità</dt>
@@ -472,7 +524,7 @@
                   </dl>
                   <div class="shop-preview-actions">
                     <button id="shop-buy-button" class="cta" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
-                      {% if first_item %}{% if first_item.owned %}Già acquistato{% else %}Acquista{% endif %}{% else %}Seleziona un oggetto{% endif %}
+                      {% if first_item %}{% if first_item.owned %}Già acquistato{% else %}Acquista{% endif %}{% else %}Nessun oggetto disponibile{% endif %}
                     </button>
                     <button id="shop-gift-button" class="ghost" {% if first_item %}data-item-id="{{ first_item.id }}"{% else %}disabled{% endif %}>
                       Regala
@@ -542,7 +594,8 @@
             <form id="friend-form" class="friend-form">
               <label class="field">
                 <span>Ricerca nuovo amico</span>
-                <input type="text" name="username" placeholder="Username Dropzone" required />
+                <input type="text" name="username" required />
+                <span class="field-hint">Inserisci l'ID esatto del giocatore Dropzone.</span>
               </label>
               <button type="submit" class="cta">Invia richiesta</button>
               <p id="friend-feedback" class="form-feedback" hidden></p>

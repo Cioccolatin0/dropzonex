@@ -1,6 +1,7 @@
 """Player progression, battle pass and storefront management."""
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -29,6 +30,7 @@ class BattlePassTier:
     unlock_currency: Optional[str] = None
     power_modifier: Optional[float] = None
     attachments: Optional[Dict[str, str]] = None
+    preview: Optional[Dict[str, object]] = None
 
 
 @dataclass
@@ -45,6 +47,7 @@ class ShopItem:
     cosmetic_id: Optional[str] = None
     tag: str = "daily"
     power_modifier: Optional[float] = None
+    preview: Optional[Dict[str, object]] = None
 
 
 class PlayerProgression:
@@ -74,6 +77,37 @@ class PlayerProgression:
                 owned = tier.cosmetic_id in owned_outfits
             elif tier.cosmetic_kind == "weapon" and tier.cosmetic_id:
                 owned = tier.cosmetic_id in owned_weapons
+            reward_payload = {
+                "type": tier.reward_type,
+                "cosmeticKind": tier.cosmetic_kind,
+                "cosmeticId": tier.cosmetic_id,
+                "amount": tier.amount,
+                "currency": tier.currency,
+                "powerModifier": tier.power_modifier,
+                "attachments": tier.attachments,
+            }
+            preview_payload = deepcopy(tier.preview) if tier.preview else {}
+            if tier.cosmetic_kind == "weapon" and tier.cosmetic_id:
+                skin = self._cosmetics.get_weapon_skin(tier.cosmetic_id)
+                if skin:
+                    if skin.power_modifier and reward_payload.get("powerModifier") is None:
+                        reward_payload["powerModifier"] = skin.power_modifier
+                    if skin.model_url:
+                        reward_payload.setdefault("modelUrl", skin.model_url)
+                        preview_payload.setdefault("modelUrl", skin.model_url)
+                    if skin.preview_blueprint:
+                        blueprint = deepcopy(skin.preview_blueprint)
+                        reward_payload.setdefault("previewBlueprint", blueprint)
+                        preview_payload.setdefault("previewBlueprint", deepcopy(skin.preview_blueprint))
+                    if skin.accent_color:
+                        reward_payload.setdefault("accentColor", skin.accent_color)
+                        preview_payload.setdefault("accentColor", skin.accent_color)
+                    preview_payload.setdefault("thumbnailUrl", skin.thumbnail_url)
+            elif tier.cosmetic_kind == "outfit" and tier.cosmetic_id:
+                outfit = self._cosmetics.get_outfit(tier.cosmetic_id)
+                if outfit and outfit.model_url:
+                    preview_payload.setdefault("modelUrl", outfit.model_url)
+                    reward_payload.setdefault("modelUrl", outfit.model_url)
             tiers_payload.append(
                 {
                     "id": tier.id,
@@ -88,15 +122,8 @@ class PlayerProgression:
                     "owned": owned,
                     "unlockCost": tier.unlock_cost if not unlocked else None,
                     "unlockCurrency": tier.unlock_currency if not unlocked else None,
-                    "reward": {
-                        "type": tier.reward_type,
-                        "cosmeticKind": tier.cosmetic_kind,
-                        "cosmeticId": tier.cosmetic_id,
-                        "amount": tier.amount,
-                        "currency": tier.currency,
-                        "powerModifier": tier.power_modifier,
-                        "attachments": tier.attachments,
-                    },
+                    "reward": reward_payload,
+                    "preview": preview_payload or None,
                 }
             )
 
@@ -337,7 +364,19 @@ class PlayerProgression:
         user.tokens = wallet.get("tokens", user.tokens)
 
     def _shop_payload(self, item: ShopItem, owned_ids: Iterable[str]) -> Dict:
-        return {
+        preview_payload = deepcopy(item.preview) if item.preview else {}
+        if item.cosmetic_kind == "weapon" and item.cosmetic_id:
+            skin = self._cosmetics.get_weapon_skin(item.cosmetic_id)
+            if skin:
+                if skin.model_url:
+                    preview_payload.setdefault("modelUrl", skin.model_url)
+                if skin.preview_blueprint:
+                    preview_payload.setdefault("previewBlueprint", deepcopy(skin.preview_blueprint))
+                if skin.accent_color:
+                    preview_payload.setdefault("accentColor", skin.accent_color)
+                preview_payload.setdefault("spinSpeed", preview_payload.get("spinSpeed", 0.72))
+                preview_payload.setdefault("thumbnailUrl", skin.thumbnail_url)
+        payload = {
             "id": item.id,
             "name": item.name,
             "description": item.description,
@@ -351,9 +390,17 @@ class PlayerProgression:
             "powerModifier": item.power_modifier,
             "owned": item.cosmetic_id in owned_ids if item.cosmetic_id else False,
         }
+        if preview_payload:
+            payload["preview"] = preview_payload
+        return payload
 
 
 def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTier]:
+    pulse_skin = cosmetics.get_weapon_skin("wrap-pulse")
+    nova_skin = cosmetics.get_weapon_skin("wrap-nova")
+    aurora_skin = cosmetics.get_weapon_skin("wrap-aurora")
+    zenith_skin = cosmetics.get_weapon_skin("weapon-zenith-prime")
+
     tiers: List[BattlePassTier] = [
         BattlePassTier(
             id="tier-1",
@@ -377,6 +424,11 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
             cosmetic_kind="weapon",
             cosmetic_id="wrap-pulse",
             power_modifier=0.022,
+            preview={
+                "accentColor": "#33e8d5",
+                "spinSpeed": 0.78,
+                "previewBlueprint": deepcopy(pulse_skin.preview_blueprint) if pulse_skin else None,
+            },
         ),
         BattlePassTier(
             id="tier-3",
@@ -435,6 +487,11 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
             unlock_cost=250,
             unlock_currency="flux",
             power_modifier=0.024,
+            preview={
+                "accentColor": "#925dff",
+                "spinSpeed": 0.7,
+                "previewBlueprint": deepcopy(nova_skin.preview_blueprint) if nova_skin else None,
+            },
         ),
         BattlePassTier(
             id="tier-8",
@@ -487,6 +544,11 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
             unlock_cost=450,
             unlock_currency="flux",
             power_modifier=0.026,
+            preview={
+                "accentColor": "#ff58ff",
+                "spinSpeed": 0.76,
+                "previewBlueprint": deepcopy(aurora_skin.preview_blueprint) if aurora_skin else None,
+            },
         ),
         BattlePassTier(
             id="tier-template-credits",
@@ -540,6 +602,7 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
                 unlock_cost=template.unlock_cost,
                 unlock_currency=template.unlock_currency,
                 power_modifier=template.power_modifier,
+                preview=deepcopy(template.preview) if template.preview else None,
             )
         )
 
@@ -560,6 +623,12 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
                 "scope": "Mirino termico VX-8",
                 "laser": "Laser ad alta frequenza",
                 "mag": "Caricatore esteso 40 colpi",
+            },
+            preview={
+                "accentColor": "#ff58ff",
+                "spinSpeed": 0.82,
+                "emissive": "#ff3bff",
+                "previewBlueprint": deepcopy(zenith_skin.preview_blueprint) if zenith_skin else None,
             },
         )
     )
@@ -582,7 +651,9 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
                 owned=False,
             )
         if tier.cosmetic_kind == "weapon" and tier.cosmetic_id:
-            texture_url = cosmetics.get_weapon_skin(tier.cosmetic_id).texture_url if cosmetics.get_weapon_skin(tier.cosmetic_id) else "https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?auto=format&fit=crop&w=600&q=60"
+            existing_skin = cosmetics.get_weapon_skin(tier.cosmetic_id)
+            texture_url = existing_skin.texture_url if existing_skin else "https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?auto=format&fit=crop&w=600&q=60"
+            preview_data = tier.preview or {}
             cosmetics.ensure_weapon_skin_registered(
                 {
                     "id": tier.cosmetic_id,
@@ -592,6 +663,10 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
                     "textureUrl": texture_url,
                     "thumbnailUrl": tier.thumbnail_url,
                     "powerModifier": tier.power_modifier or 0.02,
+                    "modelUrl": preview_data.get("modelUrl") or (existing_skin.model_url if existing_skin else None),
+                    "accentColor": preview_data.get("accentColor") or (existing_skin.accent_color if existing_skin else None),
+                    "previewBlueprint": preview_data.get("previewBlueprint")
+                    or (deepcopy(existing_skin.preview_blueprint) if existing_skin and existing_skin.preview_blueprint else None),
                 },
                 owned=False,
             )
@@ -600,6 +675,9 @@ def _build_battle_pass(cosmetics: CosmeticRepository) -> Dict[str, BattlePassTie
 
 
 def _build_shop(cosmetics: CosmeticRepository) -> Tuple[Dict[str, ShopItem], Dict[str, List[str]]]:
+    aurora_skin = cosmetics.get_weapon_skin("wrap-aurora")
+    nova_skin = cosmetics.get_weapon_skin("wrap-nova")
+
     items = [
         ShopItem(
             id="shop-outfit-striker",
@@ -627,6 +705,11 @@ def _build_shop(cosmetics: CosmeticRepository) -> Tuple[Dict[str, ShopItem], Dic
             cosmetic_id="wrap-aurora",
             tag="featured",
             power_modifier=0.027,
+            preview={
+                "accentColor": "#ff58ff",
+                "spinSpeed": 0.78,
+                "previewBlueprint": deepcopy(aurora_skin.preview_blueprint) if aurora_skin else None,
+            },
         ),
         ShopItem(
             id="shop-outfit-stealth",
@@ -654,6 +737,11 @@ def _build_shop(cosmetics: CosmeticRepository) -> Tuple[Dict[str, ShopItem], Dic
             cosmetic_id="wrap-nova",
             tag="daily",
             power_modifier=0.023,
+            preview={
+                "accentColor": "#925dff",
+                "spinSpeed": 0.72,
+                "previewBlueprint": deepcopy(nova_skin.preview_blueprint) if nova_skin else None,
+            },
         ),
         ShopItem(
             id="shop-emote-drift",
@@ -689,7 +777,9 @@ def _build_shop(cosmetics: CosmeticRepository) -> Tuple[Dict[str, ShopItem], Dic
                 owned=False,
             )
         if item.cosmetic_kind == "weapon" and item.cosmetic_id:
-            texture_url = cosmetics.get_weapon_skin(item.cosmetic_id).texture_url if cosmetics.get_weapon_skin(item.cosmetic_id) else "https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?auto=format&fit=crop&w=600&q=60"
+            existing_skin = cosmetics.get_weapon_skin(item.cosmetic_id)
+            texture_url = existing_skin.texture_url if existing_skin else "https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?auto=format&fit=crop&w=600&q=60"
+            preview_data = item.preview or {}
             cosmetics.ensure_weapon_skin_registered(
                 {
                     "id": item.cosmetic_id,
@@ -699,6 +789,10 @@ def _build_shop(cosmetics: CosmeticRepository) -> Tuple[Dict[str, ShopItem], Dic
                     "textureUrl": texture_url,
                     "thumbnailUrl": item.thumbnail_url,
                     "powerModifier": item.power_modifier or 0.02,
+                    "modelUrl": preview_data.get("modelUrl") or (existing_skin.model_url if existing_skin else None),
+                    "accentColor": preview_data.get("accentColor") or (existing_skin.accent_color if existing_skin else None),
+                    "previewBlueprint": preview_data.get("previewBlueprint")
+                    or (deepcopy(existing_skin.preview_blueprint) if existing_skin and existing_skin.preview_blueprint else None),
                 },
                 owned=False,
             )

@@ -2,6 +2,7 @@ import random
 import random
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set
 
@@ -43,6 +44,352 @@ class WeaponSkin:
     thumbnail_url: str
     created_at: float = field(default_factory=lambda: time.time())
     power_modifier: float = 0.0
+    model_url: Optional[str] = None
+    accent_color: Optional[str] = None
+    preview_blueprint: Optional[Dict[str, object]] = None
+
+
+ION_RIFLE_BLUEPRINT = {
+    "spinSpeed": 0.65,
+    "parts": [
+        {
+            "type": "box",
+            "size": [1.45, 0.2, 0.28],
+            "position": [0.0, 0.0, 0.0],
+            "color": "#0c162d",
+            "metalness": 0.68,
+            "roughness": 0.32,
+        },
+        {
+            "type": "box",
+            "size": [0.46, 0.2, 0.24],
+            "position": [0.34, 0.16, 0.0],
+            "color": "#2af0ff",
+            "emissive": "#1da8ff",
+            "emissiveIntensity": 0.75,
+            "metalness": 0.45,
+            "roughness": 0.28,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.055,
+            "height": 1.15,
+            "position": [-0.36, 0.04, 0.0],
+            "rotation": [0.0, 0.0, 1.5708],
+            "color": "#27d0ff",
+            "metalness": 0.58,
+            "roughness": 0.22,
+        },
+        {
+            "type": "box",
+            "size": [0.32, 0.16, 0.22],
+            "position": [-0.52, -0.05, 0.0],
+            "color": "#14243c",
+            "metalness": 0.52,
+            "roughness": 0.4,
+        },
+        {
+            "type": "box",
+            "size": [0.24, 0.1, 0.18],
+            "position": [0.12, -0.12, 0.0],
+            "color": "#1f6ef2",
+            "metalness": 0.42,
+            "roughness": 0.35,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.035,
+            "height": 0.55,
+            "position": [0.68, 0.07, 0.0],
+            "rotation": [0.0, 0.0, 1.5708],
+            "color": "#5fe9ff",
+            "metalness": 0.5,
+            "roughness": 0.28,
+        },
+    ],
+}
+
+
+AURORA_RIFLE_BLUEPRINT = {
+    "spinSpeed": 0.75,
+    "parts": [
+        {
+            "type": "box",
+            "size": [1.5, 0.22, 0.3],
+            "position": [0.0, 0.0, 0.0],
+            "color": "#170b33",
+            "metalness": 0.74,
+            "roughness": 0.26,
+        },
+        {
+            "type": "box",
+            "size": [0.5, 0.18, 0.26],
+            "position": [0.38, 0.18, 0.0],
+            "color": "#ff4df8",
+            "emissive": "#ff7bff",
+            "emissiveIntensity": 0.82,
+            "metalness": 0.55,
+            "roughness": 0.22,
+        },
+        {
+            "type": "box",
+            "size": [0.18, 0.18, 0.18],
+            "position": [-0.1, 0.12, 0.12],
+            "color": "#42e9ff",
+            "metalness": 0.6,
+            "roughness": 0.3,
+        },
+        {
+            "type": "box",
+            "size": [0.18, 0.18, 0.18],
+            "position": [-0.1, 0.12, -0.12],
+            "color": "#42e9ff",
+            "metalness": 0.6,
+            "roughness": 0.3,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.07,
+            "height": 1.2,
+            "position": [-0.42, 0.05, 0.0],
+            "rotation": [0.0, 0.0, 1.5708],
+            "color": "#2d0f53",
+            "metalness": 0.7,
+            "roughness": 0.28,
+        },
+        {
+            "type": "box",
+            "size": [0.22, 0.24, 0.14],
+            "position": [0.05, -0.15, 0.0],
+            "color": "#31104f",
+            "metalness": 0.52,
+            "roughness": 0.38,
+        },
+        {
+            "type": "box",
+            "size": [0.34, 0.12, 0.22],
+            "position": [0.62, 0.04, 0.0],
+            "color": "#ff9dff",
+            "emissive": "#ff44ff",
+            "emissiveIntensity": 0.9,
+            "metalness": 0.48,
+            "roughness": 0.24,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.03,
+            "height": 0.45,
+            "position": [0.74, -0.02, 0.12],
+            "rotation": [1.5708, 0.0, 0.0],
+            "color": "#f045ff",
+            "emissive": "#ff55ff",
+            "emissiveIntensity": 1.0,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.03,
+            "height": 0.45,
+            "position": [0.74, -0.02, -0.12],
+            "rotation": [1.5708, 0.0, 0.0],
+            "color": "#f045ff",
+            "emissive": "#ff55ff",
+            "emissiveIntensity": 1.0,
+        },
+    ],
+}
+
+
+NOVA_RIFLE_BLUEPRINT = {
+    "spinSpeed": 0.7,
+    "parts": [
+        {
+            "type": "box",
+            "size": [1.35, 0.2, 0.26],
+            "position": [0.0, 0.0, 0.0],
+            "color": "#120b28",
+            "metalness": 0.62,
+            "roughness": 0.3,
+        },
+        {
+            "type": "box",
+            "size": [0.44, 0.18, 0.22],
+            "position": [0.28, 0.15, 0.0],
+            "color": "#b889ff",
+            "emissive": "#7440ff",
+            "emissiveIntensity": 0.75,
+            "metalness": 0.5,
+            "roughness": 0.28,
+        },
+        {
+            "type": "box",
+            "size": [0.2, 0.12, 0.18],
+            "position": [-0.26, -0.1, 0.0],
+            "color": "#201336",
+            "metalness": 0.45,
+            "roughness": 0.36,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.05,
+            "height": 1.05,
+            "position": [-0.34, 0.05, 0.0],
+            "rotation": [0.0, 0.0, 1.5708],
+            "color": "#7a3cff",
+            "metalness": 0.64,
+            "roughness": 0.26,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.03,
+            "height": 0.4,
+            "position": [0.54, 0.12, 0.0],
+            "rotation": [1.5708, 0.0, 0.0],
+            "color": "#d4b5ff",
+            "emissive": "#905cff",
+            "emissiveIntensity": 0.6,
+        },
+        {
+            "type": "box",
+            "size": [0.28, 0.1, 0.2],
+            "position": [0.12, 0.08, 0.0],
+            "color": "#321c57",
+            "metalness": 0.48,
+            "roughness": 0.32,
+        },
+    ],
+}
+
+
+PULSE_SMG_BLUEPRINT = {
+    "spinSpeed": 0.78,
+    "parts": [
+        {
+            "type": "box",
+            "size": [1.05, 0.18, 0.22],
+            "position": [0.0, 0.0, 0.0],
+            "color": "#091b2e",
+            "metalness": 0.58,
+            "roughness": 0.3,
+        },
+        {
+            "type": "box",
+            "size": [0.32, 0.16, 0.2],
+            "position": [0.2, 0.14, 0.0],
+            "color": "#3bf0c9",
+            "emissive": "#29c7ff",
+            "emissiveIntensity": 0.68,
+            "metalness": 0.46,
+            "roughness": 0.24,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.045,
+            "height": 0.9,
+            "position": [-0.22, 0.04, 0.0],
+            "rotation": [0.0, 0.0, 1.5708],
+            "color": "#20bafc",
+            "metalness": 0.55,
+            "roughness": 0.27,
+        },
+        {
+            "type": "box",
+            "size": [0.18, 0.12, 0.18],
+            "position": [-0.18, -0.09, 0.0],
+            "color": "#0f304c",
+            "metalness": 0.5,
+            "roughness": 0.35,
+        },
+        {
+            "type": "box",
+            "size": [0.22, 0.09, 0.16],
+            "position": [0.48, 0.05, 0.0],
+            "color": "#5afddc",
+            "metalness": 0.4,
+            "roughness": 0.25,
+        },
+    ],
+}
+
+
+ZENITH_PRIME_BLUEPRINT = {
+    "spinSpeed": 0.85,
+    "parts": [
+        {
+            "type": "box",
+            "size": [1.6, 0.24, 0.32],
+            "position": [0.0, 0.02, 0.0],
+            "color": "#110722",
+            "metalness": 0.78,
+            "roughness": 0.24,
+        },
+        {
+            "type": "box",
+            "size": [0.58, 0.22, 0.28],
+            "position": [0.42, 0.2, 0.0],
+            "color": "#ff58ff",
+            "emissive": "#ff4dff",
+            "emissiveIntensity": 0.95,
+            "metalness": 0.52,
+            "roughness": 0.2,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.08,
+            "height": 1.3,
+            "position": [-0.5, 0.08, 0.0],
+            "rotation": [0.0, 0.0, 1.5708],
+            "color": "#36144f",
+            "metalness": 0.7,
+            "roughness": 0.26,
+        },
+        {
+            "type": "box",
+            "size": [0.3, 0.28, 0.18],
+            "position": [0.0, -0.16, 0.0],
+            "color": "#1b0f32",
+            "metalness": 0.58,
+            "roughness": 0.34,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.035,
+            "height": 0.6,
+            "position": [0.78, 0.12, 0.0],
+            "rotation": [1.5708, 0.0, 0.0],
+            "color": "#ff75ff",
+            "emissive": "#ff66ff",
+            "emissiveIntensity": 1.0,
+        },
+        {
+            "type": "box",
+            "size": [0.24, 0.12, 0.22],
+            "position": [0.66, -0.02, 0.0],
+            "color": "#2e0f48",
+            "metalness": 0.6,
+            "roughness": 0.28,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.05,
+            "height": 0.4,
+            "position": [-0.12, 0.18, 0.14],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": "#44f0ff",
+            "emissive": "#2feaff",
+            "emissiveIntensity": 0.75,
+        },
+        {
+            "type": "cylinder",
+            "radius": 0.05,
+            "height": 0.4,
+            "position": [-0.12, 0.18, -0.14],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": "#44f0ff",
+            "emissive": "#2feaff",
+            "emissiveIntensity": 0.75,
+        },
+    ],
+}
 
 
 class CosmeticRepository:
@@ -183,6 +530,8 @@ class CosmeticRepository:
                 texture_url="https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?auto=format&fit=crop&w=600&q=60",
                 thumbnail_url="https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?auto=format&fit=crop&w=400&q=60",
                 power_modifier=0.02,
+                accent_color="#2af0ff",
+                preview_blueprint=deepcopy(ION_RIFLE_BLUEPRINT),
             ),
             owned=True,
         )
@@ -195,6 +544,8 @@ class CosmeticRepository:
                 texture_url="https://images.unsplash.com/photo-1517430816045-df4b7de11d1d?auto=format&fit=crop&w=600&q=60",
                 thumbnail_url="https://images.unsplash.com/photo-1517430816045-df4b7de11d1d?auto=format&fit=crop&w=400&q=60",
                 power_modifier=0.03,
+                accent_color="#ff58ff",
+                preview_blueprint=deepcopy(AURORA_RIFLE_BLUEPRINT),
             ),
             owned=False,
         )
@@ -207,6 +558,8 @@ class CosmeticRepository:
                 texture_url="https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=600&q=60",
                 thumbnail_url="https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=400&q=60",
                 power_modifier=0.025,
+                accent_color="#925dff",
+                preview_blueprint=deepcopy(NOVA_RIFLE_BLUEPRINT),
             ),
             owned=False,
         )
@@ -219,6 +572,22 @@ class CosmeticRepository:
                 texture_url="https://images.unsplash.com/photo-1529421308361-1d3d421c8f97?auto=format&fit=crop&w=600&q=60",
                 thumbnail_url="https://images.unsplash.com/photo-1529421308361-1d3d421c8f97?auto=format&fit=crop&w=400&q=60",
                 power_modifier=0.018,
+                accent_color="#33e8d5",
+                preview_blueprint=deepcopy(PULSE_SMG_BLUEPRINT),
+            ),
+            owned=False,
+        )
+        self._register_weapon_skin(
+            WeaponSkin(
+                id="weapon-zenith-prime",
+                name="Zenith Prime",
+                rarity="Leggendario",
+                description="Prototipo Zenith con assetto completo di accessori reattivi.",
+                texture_url="https://images.unsplash.com/photo-1526481280695-3c469ed2b6c5?auto=format&fit=crop&w=600&q=60",
+                thumbnail_url="https://images.unsplash.com/photo-1526481280695-3c469ed2b6c5?auto=format&fit=crop&w=400&q=60",
+                power_modifier=0.03,
+                accent_color="#ff58ff",
+                preview_blueprint=deepcopy(ZENITH_PRIME_BLUEPRINT),
             ),
             owned=False,
         )
@@ -292,6 +661,10 @@ class CosmeticRepository:
             "animationBindings": animation.clips if animation else {},
         }
 
+    def random_weapon_skin(self) -> Dict:
+        skin = random.choice(list(self._weapon_skins.values()))
+        return self._serialise_weapon_skin(skin)
+
     # ------------------------------------------------------------------
     # Mutations
     # ------------------------------------------------------------------
@@ -320,6 +693,9 @@ class CosmeticRepository:
             texture_url=data["textureUrl"],
             thumbnail_url=data.get("thumbnailUrl", data["textureUrl"]),
             power_modifier=float(data.get("powerModifier", 0.0)),
+            model_url=data.get("modelUrl"),
+            accent_color=data.get("accentColor"),
+            preview_blueprint=deepcopy(data.get("previewBlueprint")) if data.get("previewBlueprint") else None,
         )
         self._register_weapon_skin(skin, owned=True)
         return self._serialise_weapon_skin(skin)
@@ -381,6 +757,9 @@ class CosmeticRepository:
                 texture_url=data["textureUrl"],
                 thumbnail_url=data.get("thumbnailUrl", data["textureUrl"]),
                 power_modifier=float(data.get("powerModifier", 0.0)),
+                model_url=data.get("modelUrl"),
+                accent_color=data.get("accentColor"),
+                preview_blueprint=deepcopy(data.get("previewBlueprint")) if data.get("previewBlueprint") else None,
             )
             self._register_weapon_skin(skin, owned=owned)
         elif owned:
@@ -420,6 +799,9 @@ class CosmeticRepository:
             "thumbnailUrl": skin.thumbnail_url,
             "powerModifier": skin.power_modifier,
             "createdAt": skin.created_at,
+            "modelUrl": skin.model_url,
+            "accentColor": skin.accent_color,
+            "previewBlueprint": deepcopy(skin.preview_blueprint) if skin.preview_blueprint else None,
             "owned": skin.id in self._owned_weapon_skin_ids,
         }
 
