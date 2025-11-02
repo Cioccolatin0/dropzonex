@@ -195,7 +195,12 @@ class PlayerProgression:
     def ensure_profile(self, session: Session, user: User) -> None:
         """Guarantee that the user owns starter cosmetics and equipment."""
 
-        owned_ids = {item.cosmetic_id for item in user.owned_cosmetics}
+        owned_ids = {
+            cosmetic_id
+            for (cosmetic_id,) in session.query(OwnedCosmetic.cosmetic_id)
+            .filter(OwnedCosmetic.user_id == user.id)
+            .all()
+        }
         starter_outfits = ["outfit-sentinel"]
         starter_wraps = ["wrap-ion"]
         changed = False
@@ -211,6 +216,7 @@ class PlayerProgression:
                     )
                 )
                 changed = True
+                owned_ids.add(outfit_id)
         for wrap_id in starter_wraps:
             if wrap_id not in owned_ids:
                 session.add(
@@ -223,6 +229,7 @@ class PlayerProgression:
                     )
                 )
                 changed = True
+                owned_ids.add(wrap_id)
         if changed:
             session.flush()
         if not user.equipped_outfit_id:
