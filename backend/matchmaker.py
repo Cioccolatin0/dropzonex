@@ -83,6 +83,7 @@ class Matchmaker:
         team_size: int = 3,
         players_per_match: int = 60,
         max_wait_time: float = 15.0,
+        quick_start_delay: float = 3.0,
         mode_rules: Optional[Dict[str, Dict[str, object]]] = None,
     ) -> None:
         self.cosmetics = cosmetics
@@ -105,6 +106,7 @@ class Matchmaker:
                 "players_per_match": max(max(1, team_size), default_players),
             }
         self.max_wait_time = max_wait_time
+        self.quick_start_delay = max(0.5, quick_start_delay)
         self._sessions: Dict[str, PlayerSession] = {}
         self._waiting_by_mode: Dict[str, List[str]] = {mode: [] for mode in self._mode_rules}
         self._matches: Dict[str, Match] = {}
@@ -248,17 +250,23 @@ class Matchmaker:
                     return [self._sessions[sid] for sid in self._waiting_by_mode[mode] if self._sessions[sid].status == "waiting"]
 
                 ready_sessions = ready_sessions_list()
+                min_team = max(int(rule["team_size"]), 1)
 
-                while len(ready_sessions) >= capacity:
-                    batch = ready_sessions[:capacity]
-                    await self._create_match(batch, mode, rule)
-                    ready_sessions = ready_sessions_list()
-
-                if ready_sessions:
+                while ready_sessions:
                     oldest = ready_sessions[0]
-                    if now - oldest.joined_at >= self.max_wait_time:
+                    wait_time = now - oldest.joined_at
+
+                    if len(ready_sessions) >= capacity:
+                        batch = ready_sessions[:capacity]
+                        await self._create_match(batch, mode, rule)
+                    elif len(ready_sessions) >= min_team and wait_time >= self.quick_start_delay:
                         await self._create_match(ready_sessions, mode, rule)
-                        ready_sessions = ready_sessions_list()
+                    elif wait_time >= self.max_wait_time:
+                        await self._create_match(ready_sessions, mode, rule)
+                    else:
+                        break
+
+                    ready_sessions = ready_sessions_list()
 
                 waiting_to_notify.extend(self._waiting_by_mode[mode])
         await self._notify_sessions(waiting_to_notify)
